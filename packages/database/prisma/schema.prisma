@@ -1,0 +1,365 @@
+// ClipForge AI — database schema
+// Single source of truth for all persisted entities.
+// Conventions:
+//  - Every user-owned entity carries userId directly or reaches it through
+//    its Project. Backend authorization always resolves ownership here.
+//  - Media files are referenced by object-storage keys, never public URLs.
+//  - JSON columns (timeline, editing plan) are versioned for forward migration.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Enums ─────────────────────────────────────────────────
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum Plan {
+  FREE
+  STARTER
+  PRO
+  BUSINESS
+}
+
+enum ProjectStatus {
+  DRAFT
+  IMPORTING
+  IMPORTED
+  ANALYZING
+  GENERATING_HIGHLIGHTS
+  READY
+  RENDERING
+  COMPLETED
+  FAILED
+  ARCHIVED
+}
+
+enum SourceType {
+  UPLOAD
+  YOUTUBE
+  S3_URL
+}
+
+enum RightsType {
+  OWNED
+  LICENSED
+  CREATIVE_COMMONS
+  PUBLIC_DOMAIN
+  PERMISSION_GRANTED
+  UNKNOWN
+}
+
+enum TranscriptStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  UNAVAILABLE
+}
+
+enum ClipStatus {
+  DRAFT
+  EDITING
+  RENDER_QUEUED
+  RENDERING
+  RENDERED
+  FAILED
+}
+
+enum RenderStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum CreditReason {
+  IMPORT_VIDEO
+  GENERATE_HIGHLIGHTS
+  RENDER_CLIP
+  PLAN_GRANT
+  ADMIN_ADJUSTMENT
+  REFUND
+}
+
+// ── Identity & billing ────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  passwordHash  String?
+  role          UserRole  @default(USER)
+  plan          Plan      @default(FREE)
+  emailVerified DateTime?
+  creditBalance Int       @default(20)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  projects           Project[]
+  refreshTokens      RefreshToken[]
+  creditTransactions CreditTransaction[]
+  subscription       Subscription?
+  templates          Template[]
+}
+
+model RefreshToken {
+  id         String    @id @default(cuid())
+  userId     String
+  tokenHash  String    @unique
+  userAgent  String?
+  ip         String?
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Subscription {
+  id                 String    @id @default(cuid())
+  userId             String    @unique
+  plan               Plan      @default(FREE)
+  externalCustomerId String?
+  externalSubId      String?
+  currentPeriodEnd   DateTime?
+  cancelAtPeriodEnd  Boolean   @default(false)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model CreditTransaction {
+  id        String       @id @default(cuid())
+  userId    String
+  amount    Int // negative = spend, positive = grant
+  reason    CreditReason
+  projectId String?
+  clipId    String?
+  createdAt DateTime     @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+// ── Projects & sources ────────────────────────────────────
+
+model Project {
+  id        String        @id @default(cuid())
+  userId    String
+  name      String
+  sourceUrl String?
+  status    ProjectStatus @default(DRAFT)
+  error     String?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  source     VideoSource?
+  transcript Transcript?
+  highlights Highlight[]
+  clips      Clip[]
+
+  @@index([userId, updatedAt(sort: Desc)])
+}
+
+model VideoSource {
+  id           String     @id @default(cuid())
+  projectId    String     @unique
+  sourceType   SourceType
+  title        String?
+  thumbnailUrl String? // external thumbnail (e.g. YouTube oEmbed)
+  thumbnailKey String? // storage key for generated thumbnail
+  duration     Float? // seconds
+  width        Int?
+  height       Int?
+  fps          Float?
+  sizeBytes    BigInt?
+  storageKey   String? // original media in object storage
+  audioKey     String? // extracted audio (for transcription)
+  externalId   String? // e.g. YouTube video id
+  rights       RightsType @default(UNKNOWN)
+  rightsNote   String? // attribution / license text supplied by user
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+// ── Transcription ─────────────────────────────────────────
+
+model Transcript {
+  id        String           @id @default(cuid())
+  projectId String           @unique
+  status    TranscriptStatus @default(PENDING)
+  language  String?
+  fullText  String?
+  provider  String?
+  error     String?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  project  Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  segments TranscriptSegment[]
+}
+
+model TranscriptSegment {
+  id           String  @id @default(cuid())
+  transcriptId String
+  index        Int
+  startTime    Float
+  endTime      Float
+  text         String
+  speaker      String?
+  confidence   Float?
+
+  transcript Transcript @relation(fields: [transcriptId], references: [id], onDelete: Cascade)
+
+  @@unique([transcriptId, index])
+  @@index([transcriptId, startTime])
+}
+
+// ── Highlights & clips ────────────────────────────────────
+
+model Highlight {
+  id         String   @id @default(cuid())
+  projectId  String
+  startTime  Float
+  endTime    Float
+  duration   Float
+  score      Float?
+  title      String?
+  hook       String?
+  reason     String?
+  category   String?
+  confidence Float?
+  createdAt  DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  clips   Clip[]
+
+  @@index([projectId, score(sort: Desc)])
+}
+
+model Clip {
+  id          String     @id @default(cuid())
+  projectId   String
+  highlightId String?
+  name        String?
+  status      ClipStatus @default(DRAFT)
+  format      String? // vertical | square | landscape
+  resolution  String? // e.g. 1080x1920
+  template    String?
+  duration    Float?
+  // Structured editing plan produced by the Editing Plan Agent (versioned JSON)
+  editingPlan Json?
+  planVersion Int        @default(1)
+  renderedKey String? // final MP4 storage key of the latest successful render
+  previewKey  String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  project    Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  highlight  Highlight?   @relation(fields: [highlightId], references: [id], onDelete: SetNull)
+  timeline   Timeline?
+  captions   Caption[]
+  renderJobs RenderJob[]
+  exports    Export[]
+
+  @@index([projectId, updatedAt(sort: Desc)])
+}
+
+model Timeline {
+  id        String   @id @default(cuid())
+  clipId    String   @unique
+  // JSON tracks structure (video/caption/text/audio/effect) — see shared-types
+  data      Json
+  version   Int      @default(1)
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  clip Clip @relation(fields: [clipId], references: [id], onDelete: Cascade)
+}
+
+model Caption {
+  id        String  @id @default(cuid())
+  clipId    String
+  index     Int
+  startTime Float // relative to clip start (seconds)
+  endTime   Float
+  text      String
+  speaker   String?
+  // per-caption style overrides (highlighted words, emphasis…)
+  style     Json?
+
+  clip Clip @relation(fields: [clipId], references: [id], onDelete: Cascade)
+
+  @@unique([clipId, index])
+  @@index([clipId, startTime])
+}
+
+model Template {
+  id          String   @id @default(cuid())
+  // null userId = built-in template available to everyone
+  userId      String?
+  name        String
+  description String?
+  category    String?
+  // full template definition: layout, caption style, effects defaults
+  definition  Json
+  isPublic    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ── Rendering & exports ───────────────────────────────────
+
+model RenderJob {
+  id          String       @id @default(cuid())
+  clipId      String
+  status      RenderStatus @default(PENDING)
+  progress    Int          @default(0)
+  step        String? // human-readable current step
+  error       String?
+  outputKey   String?
+  queueJobId  String?
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime     @default(now())
+
+  clip Clip @relation(fields: [clipId], references: [id], onDelete: Cascade)
+
+  @@index([clipId, createdAt(sort: Desc)])
+}
+
+model Export {
+  id         String   @id @default(cuid())
+  clipId     String
+  fileName   String
+  storageKey String
+  format     String // mp4
+  resolution String // 720p | 1080p | 2160p
+  sizeBytes  BigInt?
+  createdAt  DateTime @default(now())
+
+  clip Clip @relation(fields: [clipId], references: [id], onDelete: Cascade)
+
+  @@index([clipId, createdAt(sort: Desc)])
+}

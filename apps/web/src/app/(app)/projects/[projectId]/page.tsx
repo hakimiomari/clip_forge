@@ -1,0 +1,231 @@
+"use client";
+
+import { use, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  ArrowLeft,
+  Trash2,
+  Loader2,
+  AlertTriangle,
+  Sparkles,
+  Clock,
+  Monitor,
+  HardDrive,
+} from "lucide-react";
+import { api } from "@/lib/api";
+import type { ProjectDetail } from "@/lib/types";
+import { useProjectProgress } from "@/lib/use-project-progress";
+import { formatBytes, formatDuration } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Card, CardDescription, CardTitle } from "@/components/ui/card";
+import { StatusBadge } from "@/components/ui/badge";
+import { ProgressBar } from "@/components/ui/progress";
+
+const PROCESSING_STATUSES = [
+  "IMPORTING",
+  "ANALYZING",
+  "GENERATING_HIGHLIGHTS",
+  "RENDERING",
+];
+
+export default function ProjectDetailPage({
+  params,
+}: {
+  params: Promise<{ projectId: string }>;
+}) {
+  const { projectId } = use(params);
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const [deleting, setDeleting] = useState(false);
+
+  const { data: project, isLoading } = useQuery({
+    queryKey: ["project", projectId],
+    queryFn: () => api<ProjectDetail>(`/projects/${projectId}`),
+    // Poll while processing as a backup for the socket
+    refetchInterval: (query) =>
+      query.state.data && PROCESSING_STATUSES.includes(query.state.data.status)
+        ? 4000
+        : false,
+  });
+
+  const progress = useProjectProgress(projectId, () => {
+    void queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+  });
+
+  if (isLoading || !project) {
+    return (
+      <div className="flex min-h-[50vh] items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-muted" />
+      </div>
+    );
+  }
+
+  const isProcessing = PROCESSING_STATUSES.includes(project.status);
+  const showProgress =
+    isProcessing && progress && progress.status === project.status;
+
+  const handleDelete = async () => {
+    if (!window.confirm(`Delete "${project.name}" and all its files? This cannot be undone.`)) {
+      return;
+    }
+    setDeleting(true);
+    try {
+      await api(`/projects/${projectId}`, { method: "DELETE" });
+      void queryClient.invalidateQueries({ queryKey: ["projects"] });
+      router.replace("/projects");
+    } catch {
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <div className="mx-auto max-w-4xl">
+      <Link
+        href="/projects"
+        className="mb-4 inline-flex items-center gap-1 text-sm text-muted hover:text-foreground"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        Back to projects
+      </Link>
+
+      <div className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold tracking-tight">{project.name}</h1>
+            <StatusBadge status={project.status} />
+          </div>
+          {project.sourceUrl && (
+            <p className="mt-1 text-sm text-muted">{project.sourceUrl}</p>
+          )}
+        </div>
+        <Button
+          variant="danger"
+          size="sm"
+          onClick={handleDelete}
+          loading={deleting}
+        >
+          <Trash2 className="h-4 w-4" />
+          Delete
+        </Button>
+      </div>
+
+      {isProcessing && (
+        <Card className="mb-6">
+          <div className="flex items-center gap-3">
+            <Loader2 className="h-5 w-5 animate-spin text-primary" />
+            <div className="flex-1">
+              <CardTitle>
+                {showProgress ? progress.step : "Processing your video…"}
+              </CardTitle>
+              <CardDescription>
+                You can leave this page — processing continues in the background.
+              </CardDescription>
+            </div>
+          </div>
+          <ProgressBar
+            className="mt-4"
+            value={showProgress ? progress.progress : 15}
+          />
+        </Card>
+      )}
+
+      {project.status === "FAILED" && (
+        <Card className="mb-6 border-danger/30 bg-danger/5">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-danger" />
+            <div>
+              <CardTitle className="text-danger">Processing failed</CardTitle>
+              <CardDescription className="mt-1">
+                {project.error ??
+                  "We could not process this source. Please try another video or upload a supported file."}
+              </CardDescription>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      <div className="grid gap-6 md:grid-cols-5">
+        <Card className="overflow-hidden p-0 md:col-span-3">
+          <div className="aspect-video w-full bg-black">
+            {project.mediaUrl ? (
+              <video
+                src={project.mediaUrl}
+                controls
+                className="h-full w-full"
+                poster={project.source?.thumbnailUrl ?? undefined}
+              />
+            ) : project.source?.thumbnailUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={project.source.thumbnailUrl}
+                alt=""
+                className="h-full w-full object-contain"
+              />
+            ) : (
+              <div className="flex h-full items-center justify-center text-sm text-muted">
+                No preview available
+              </div>
+            )}
+          </div>
+          {project.source?.title && (
+            <div className="p-4">
+              <p className="truncate text-sm font-medium">
+                {project.source.title}
+              </p>
+            </div>
+          )}
+        </Card>
+
+        <div className="space-y-4 md:col-span-2">
+          <Card>
+            <CardTitle className="mb-3">Source details</CardTitle>
+            <dl className="space-y-2.5 text-sm">
+              <div className="flex items-center justify-between">
+                <dt className="flex items-center gap-2 text-muted">
+                  <Clock className="h-4 w-4" /> Duration
+                </dt>
+                <dd>{formatDuration(project.source?.duration)}</dd>
+              </div>
+              <div className="flex items-center justify-between">
+                <dt className="flex items-center gap-2 text-muted">
+                  <Monitor className="h-4 w-4" /> Resolution
+                </dt>
+                <dd>
+                  {project.source?.width && project.source?.height
+                    ? `${project.source.width}×${project.source.height}`
+                    : "—"}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between">
+                <dt className="flex items-center gap-2 text-muted">
+                  <HardDrive className="h-4 w-4" /> Size
+                </dt>
+                <dd>{formatBytes(project.source?.sizeBytes ?? null)}</dd>
+              </div>
+              <div className="flex items-center justify-between">
+                <dt className="text-muted">Rights</dt>
+                <dd className="text-xs">{project.source?.rights ?? "—"}</dd>
+              </div>
+            </dl>
+          </Card>
+
+          <Card>
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-accent" />
+              <CardTitle>AI highlights</CardTitle>
+            </div>
+            <CardDescription className="mt-2">
+              {project.status === "IMPORTED"
+                ? "Source imported. Highlight generation arrives in Milestone 2 — transcript analysis, scoring, and clip suggestions."
+                : project.highlights.length > 0
+                  ? `${project.highlights.length} highlights found.`
+                  : "Highlights will appear here once the source is imported and analyzed."}
+            </CardDescription>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}

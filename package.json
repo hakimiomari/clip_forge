@@ -1,0 +1,26 @@
+{
+  "name": "clipforge-ai",
+  "private": true,
+  "version": "0.1.0",
+  "description": "ClipForge AI — AI-powered video highlight generator & short-form video editor",
+  "packageManager": "pnpm@11.22.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build:packages": "pnpm --filter @clipforge/database generate && pnpm --filter @clipforge/database build && pnpm --filter @clipforge/shared-types build",
+    "dev": "pnpm build:packages && pnpm --parallel --filter @clipforge/api --filter @clipforge/worker --filter @clipforge/web dev",
+    "dev:api": "pnpm --filter @clipforge/api dev",
+    "dev:web": "pnpm --filter @clipforge/web dev",
+    "dev:worker": "pnpm --filter @clipforge/worker dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "db:generate": "pnpm --filter @clipforge/database generate",
+    "db:migrate": "pnpm --filter @clipforge/database migrate:dev",
+    "db:deploy": "pnpm --filter @clipforge/database migrate:deploy",
+    "db:studio": "pnpm --filter @clipforge/database studio",
+    "infra:up": "docker compose -f docker/docker-compose.yml up -d",
+    "infra:down": "docker compose -f docker/docker-compose.yml down"
+  }
+}
