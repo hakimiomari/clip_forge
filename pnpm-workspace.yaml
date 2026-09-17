@@ -1,3 +1,25 @@
 packages:
   - "apps/*"
   - "packages/*"
+
+# Network settings for constrained bandwidth: serialize downloads so large
+# tarballs (next, prisma, sharp) aren't starved past the abort deadline.
+networkConcurrency: 1
+fetchTimeout: 1800000
+fetchRetries: 10
+fetchRetryMintimeout: 15000
+
+# Hoisting (pnpm ≥10 reads settings here, not .npmrc)
+publicHoistPattern:
+  - "*prisma*"
+  - "*eslint*"
+  - "*types*"
+strictPeerDependencies: false
+# Postinstall scripts: allow the toolchain binaries, decline telemetry
+allowBuilds:
+  '@prisma/client': true
+  '@prisma/engines': true
+  '@scarf/scarf': false
+  esbuild: true
+  msgpackr-extract: true
+  prisma: true

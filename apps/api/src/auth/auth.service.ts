@@ -18,10 +18,20 @@ export interface TokenPair {
   refreshExpiresAt: Date;
 }
 
-const REFRESH_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-
 function sha256(input: string): string {
   return createHash("sha256").update(input).digest("hex");
+}
+
+/** Parses TTLs like "15m", "7d", "3600" (seconds) into seconds. */
+export function parseTtlSeconds(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const match = value.trim().match(/^(\d+)([smhd]?)$/);
+  if (!match) return fallback;
+  const amount = Number(match[1]);
+  const unit = match[2] ?? "";
+  const multiplier =
+    unit === "m" ? 60 : unit === "h" ? 3600 : unit === "d" ? 86400 : 1;
+  return amount * multiplier;
 }
 
 @Injectable()
@@ -130,20 +140,28 @@ export class AuthService {
     email: string,
     role: "USER" | "ADMIN",
   ): Promise<TokenPair> {
+    const accessTtl = parseTtlSeconds(
+      this.config.get<string>("JWT_ACCESS_TTL"),
+      15 * 60,
+    );
+    const refreshTtl = parseTtlSeconds(
+      this.config.get<string>("JWT_REFRESH_TTL"),
+      7 * 24 * 3600,
+    );
     const payload: AccessTokenPayload = { sub: userId, email, role };
     const accessToken = await this.jwt.signAsync(payload, {
       secret: this.config.getOrThrow<string>("JWT_SECRET"),
-      expiresIn: this.config.get<string>("JWT_ACCESS_TTL") ?? "15m",
+      expiresIn: accessTtl,
     });
     // jti makes every refresh token unique even within the same second
     const refreshToken = await this.jwt.signAsync(
       { sub: userId, jti: randomBytes(16).toString("hex") },
       {
         secret: this.config.getOrThrow<string>("JWT_REFRESH_SECRET"),
-        expiresIn: this.config.get<string>("JWT_REFRESH_TTL") ?? "7d",
+        expiresIn: refreshTtl,
       },
     );
-    const refreshExpiresAt = new Date(Date.now() + REFRESH_TTL_MS);
+    const refreshExpiresAt = new Date(Date.now() + refreshTtl * 1000);
     await this.prisma.refreshToken.create({
       data: {
         userId,
