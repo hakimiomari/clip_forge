@@ -173,6 +173,7 @@ export class ClipsService {
         clipId,
         renderJobId: renderJob.id,
         userId,
+        chargedCredits: cost,
       });
       return this.detail(clipId, userId);
     } catch (err) {

@@ -73,6 +73,9 @@ export class AuthService {
     if (!valid) {
       throw new UnauthorizedException("Invalid email or password");
     }
+    if (user.suspendedAt) {
+      throw new UnauthorizedException("This account has been suspended");
+    }
     const tokens = await this.issueTokens(user.id, user.email, user.role);
     return { user: this.toAuthUser(user), tokens };
   }
@@ -112,6 +115,9 @@ export class AuthService {
       where: { id: payload.sub },
     });
     if (!user) throw new UnauthorizedException();
+    if (user.suspendedAt) {
+      throw new UnauthorizedException("This account has been suspended");
+    }
 
     await this.prisma.refreshToken.update({
       where: { id: stored.id },

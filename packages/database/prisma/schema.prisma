@@ -102,6 +102,7 @@ model User {
   plan          Plan      @default(FREE)
   emailVerified DateTime?
   creditBalance Int       @default(20)
+  suspendedAt   DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 

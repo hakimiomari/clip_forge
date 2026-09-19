@@ -17,7 +17,7 @@ import { refundCredits } from "../lib/credits";
  * verifies the output, uploads it and records an Export.
  */
 export async function processRenderVideo(job: Job<RenderVideoJob>): Promise<void> {
-  const { clipId, renderJobId, userId } = job.data;
+  const { clipId, renderJobId, userId, chargedCredits } = job.data;
   const prisma = getPrismaClient();
 
   const clip = await prisma.clip.findUnique({
@@ -218,7 +218,10 @@ export async function processRenderVideo(job: Job<RenderVideoJob>): Promise<void
           },
         }),
       ]);
-      await refundCredits(userId, renderCost(duration), { projectId, clipId });
+      await refundCredits(userId, chargedCredits ?? renderCost(duration), {
+        projectId,
+        clipId,
+      });
       await publishProgress({
         projectId,
         clipId,

@@ -10,6 +10,8 @@ import {
   Loader2,
   LogOut,
   Coins,
+  Settings,
+  ShieldCheck,
 } from "lucide-react";
 import { useAuthStore } from "@/lib/auth-store";
 import { cn } from "@/lib/utils";
@@ -18,6 +20,7 @@ import { Button } from "@/components/ui/button";
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/projects", label: "Projects", icon: FolderOpen },
+  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -60,6 +63,20 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               {label}
             </Link>
           ))}
+          {user.role === "ADMIN" && (
+            <Link
+              href="/admin"
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                pathname.startsWith("/admin")
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted hover:bg-surface-raised hover:text-foreground",
+              )}
+            >
+              <ShieldCheck className="h-4 w-4" />
+              Admin
+            </Link>
+          )}
         </nav>
         <div className="space-y-3 border-t border-border pt-4">
           <div className="flex items-center gap-2 px-2 text-sm text-muted">

@@ -107,6 +107,7 @@ describe("ClipsService", () => {
       clipId: "c1",
       renderJobId: "rj1",
       userId: OWNER,
+      chargedCredits: 4,
     });
   });
 

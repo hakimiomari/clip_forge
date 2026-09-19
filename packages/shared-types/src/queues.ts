@@ -61,6 +61,8 @@ export interface RenderVideoJob {
   clipId: string;
   renderJobId: string;
   userId: string;
+  /** Credits charged for this render — refunded on failure (default: duration-based cost) */
+  chargedCredits?: number;
 }
 
 export interface QualityCheckJob {
