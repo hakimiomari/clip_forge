@@ -20,7 +20,6 @@ import { Button } from "@/components/ui/button";
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/projects", label: "Projects", icon: FolderOpen },
-  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -88,10 +87,27 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               credits
             </span>
           </div>
-          <div className="px-2">
-            <p className="truncate text-sm font-medium">{user.name ?? user.email}</p>
-            <p className="truncate text-xs text-muted">{user.email}</p>
-          </div>
+          <Link
+            href="/settings"
+            title="Account settings"
+            className={cn(
+              "group flex items-center justify-between rounded-lg px-2 py-1.5 transition-colors hover:bg-surface-raised",
+              pathname.startsWith("/settings") && "bg-primary/10",
+            )}
+          >
+            <div className="min-w-0">
+              <p
+                className={cn(
+                  "truncate text-sm font-medium group-hover:text-primary",
+                  pathname.startsWith("/settings") && "text-primary",
+                )}
+              >
+                {user.name ?? user.email}
+              </p>
+              <p className="truncate text-xs text-muted">{user.email}</p>
+            </div>
+            <Settings className="h-4 w-4 shrink-0 text-muted group-hover:text-primary" />
+          </Link>
           <Button
             variant="ghost"
             size="sm"
