@@ -19,7 +19,9 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={inter.variable}>
-      <body>
+      {/* suppressHydrationWarning: browser extensions (e.g. Grammarly) inject
+          attributes into <body> before React hydrates */}
+      <body suppressHydrationWarning>
         <Providers>{children}</Providers>
       </body>
     </html>
