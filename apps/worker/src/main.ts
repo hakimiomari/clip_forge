@@ -4,6 +4,8 @@ import { QUEUES } from "@clipforge/shared-types";
 import { env } from "./env";
 import { processVideoImport } from "./processors/video-import.processor";
 import { processCleanup } from "./processors/cleanup.processor";
+import { processHighlightGeneration } from "./processors/highlight-generation.processor";
+import { processRenderVideo } from "./processors/render-video.processor";
 import { closeProgressPublisher } from "./lib/progress";
 import { getPrismaClient } from "@clipforge/database";
 
@@ -22,6 +24,8 @@ const connection = new IORedis(env.REDIS_URL, { maxRetriesPerRequest: null });
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const registry: Array<{ queue: string; processor: Processor<any>; concurrency: number }> = [
   { queue: QUEUES.VIDEO_IMPORT, processor: processVideoImport, concurrency: 2 },
+  { queue: QUEUES.HIGHLIGHT_GENERATION, processor: processHighlightGeneration, concurrency: 1 },
+  { queue: QUEUES.RENDER_VIDEO, processor: processRenderVideo, concurrency: 1 },
   { queue: QUEUES.CLEANUP_FILES, processor: processCleanup, concurrency: 5 },
 ];
 

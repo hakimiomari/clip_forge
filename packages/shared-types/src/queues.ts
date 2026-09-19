@@ -100,4 +100,6 @@ export interface ProjectProgressEvent {
   progress: number; // 0–100
   step: string;
   error?: string;
+  /** Present when the event concerns one clip (e.g. rendering) */
+  clipId?: string;
 }

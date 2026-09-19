@@ -92,3 +92,27 @@ export interface DashboardStats {
   processingJobs: number;
   remainingCredits: number;
 }
+
+/** Options the web app sends when creating a clip from a highlight. */
+export interface CreateClipInput {
+  name?: string;
+  format: "vertical" | "square" | "landscape";
+  captionsEnabled: boolean;
+  captionStyle: string;
+  zoomEnabled: boolean;
+  /** Fine-trim offsets (seconds) applied to the highlight window */
+  trimStartDelta?: number;
+  trimEndDelta?: number;
+}
+
+export interface ClipDetail extends ClipSummary {
+  renderJob: {
+    id: string;
+    status: string;
+    progress: number;
+    step: string | null;
+    error: string | null;
+  } | null;
+  hasExport: boolean;
+  previewUrl: string | null;
+}

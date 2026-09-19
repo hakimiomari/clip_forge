@@ -26,4 +26,31 @@ export interface ProjectDetail extends ProjectSummary {
   mediaUrl: string | null;
 }
 
+export interface ClipDetailResponse {
+  id: string;
+  projectId: string;
+  name: string | null;
+  status: string;
+  format: string | null;
+  resolution: string | null;
+  duration: number | null;
+  renderJob: {
+    id: string;
+    status: string;
+    progress: number;
+    step: string | null;
+    error: string | null;
+  } | null;
+  hasExport: boolean;
+  previewUrl: string | null;
+}
+
+export interface GenerateHighlightsInput {
+  clipDuration: number;
+  clipCount: number;
+  format: string;
+  editingStyle: string;
+  captionStyle: string;
+}
+
 export type { ProjectSummary, VideoSourceSummary };

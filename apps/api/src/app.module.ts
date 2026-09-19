@@ -7,6 +7,8 @@ import { PrismaModule } from "./prisma/prisma.module";
 import { AuthModule } from "./auth/auth.module";
 import { UsersModule } from "./users/users.module";
 import { ProjectsModule } from "./projects/projects.module";
+import { HighlightsModule } from "./highlights/highlights.module";
+import { ClipsModule } from "./clips/clips.module";
 import { StorageModule } from "./storage/storage.module";
 import { QueuesModule } from "./queues/queues.module";
 import { UsageModule } from "./usage/usage.module";
@@ -32,6 +34,8 @@ import { JwtAuthGuard } from "./common/guards/jwt-auth.guard";
     AuthModule,
     UsersModule,
     ProjectsModule,
+    HighlightsModule,
+    ClipsModule,
     StorageModule,
     QueuesModule,
     UsageModule,

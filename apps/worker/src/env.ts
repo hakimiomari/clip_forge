@@ -46,6 +46,12 @@ const schema = z.object({
   FFMPEG_PATH: z.string().optional(),
   FFPROBE_PATH: z.string().optional(),
   YOUTUBE_API_KEY: z.string().optional(),
+  // AI providers (all optional — heuristic fallback works without keys)
+  AI_PROVIDER: z.enum(["anthropic", "openai", "heuristic", "mock"]).default("heuristic"),
+  AI_API_KEY: z.string().optional(),
+  AI_MODEL: z.string().default("claude-sonnet-5"),
+  TRANSCRIPTION_PROVIDER: z.enum(["openai", "deepgram", "none", "mock"]).default("none"),
+  TRANSCRIPTION_API_KEY: z.string().optional(),
 });
 
 const parsed = schema.safeParse(process.env);

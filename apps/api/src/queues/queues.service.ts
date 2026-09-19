@@ -12,6 +12,8 @@ import {
   type VideoImportJob,
   type TranscriptionJob,
   type CleanupFilesJob,
+  type HighlightGenerationJob,
+  type RenderVideoJob,
 } from "@clipforge/shared-types";
 
 /**
@@ -67,6 +69,26 @@ export class QueuesService implements OnModuleDestroy {
   async enqueueCleanup(payload: CleanupFilesJob): Promise<void> {
     if (payload.storageKeys.length === 0) return;
     await this.queue(QUEUES.CLEANUP_FILES).add("cleanup", payload);
+  }
+
+  async enqueueHighlightGeneration(payload: HighlightGenerationJob): Promise<string> {
+    const job = await this.queue(QUEUES.HIGHLIGHT_GENERATION).add(
+      "generate",
+      payload,
+      // Analysis + LLM calls are not safely retryable mid-way — single attempt,
+      // failure handling (status + refund) lives in the processor.
+      { attempts: 1 },
+    );
+    this.logger.log(`Enqueued highlight-generation for project ${payload.projectId}`);
+    return job.id ?? "";
+  }
+
+  async enqueueRenderVideo(payload: RenderVideoJob): Promise<string> {
+    const job = await this.queue(QUEUES.RENDER_VIDEO).add("render", payload, {
+      attempts: 1,
+    });
+    this.logger.log(`Enqueued render for clip ${payload.clipId}`);
+    return job.id ?? "";
   }
 
   async onModuleDestroy(): Promise<void> {

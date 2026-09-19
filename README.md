@@ -64,13 +64,21 @@ Open http://localhost:3000, register an account, create a project and upload a v
 | `pnpm db:migrate` | Create/apply dev migrations |
 | `pnpm infra:up` / `infra:down` | Start/stop Docker infrastructure |
 
-## Current status — Milestone 1 ✅
+## Current status — Milestones 1–3 ✅ (core MVP flow works end-to-end)
 
-Implemented: monorepo, Prisma schema (all core entities), cookie-based JWT auth with refresh rotation, project CRUD with strict per-user ownership, presigned direct-to-storage uploads, compliant YouTube metadata import (oEmbed; no media download), video-import worker (FFprobe metadata, thumbnail, audio extraction), live progress over WebSockets, credits ledger, dashboard.
+**Upload → AI highlights → clip → render → download MP4** is fully working:
 
-Next milestones are described in [docs/ROADMAP.md](docs/ROADMAP.md):
-- **Milestone 2** — transcription pipeline, AI highlight detection, highlight UI
-- **Milestone 3** — clip generation, vertical conversion, captions, effects, rendering, MP4 download
+- Milestone 1: monorepo, Prisma schema, cookie JWT auth with refresh rotation, project CRUD with per-user ownership, presigned uploads, compliant YouTube metadata import, video-import worker, live progress, credits ledger, dashboard.
+- Milestone 2: highlight generation — transcription providers (OpenAI Whisper / Deepgram, optional), FFmpeg signal analysis (audio energy, silences, scene cuts), LLM highlight selection (Claude/OpenAI, optional) with a **fully offline heuristic fallback** that needs no API keys.
+- Milestone 3: clip creation from highlights with an editing plan, FFmpeg render pipeline (vertical/square/landscape, blurred background fill, slow zoom, fades, burned ASS captions, loudness normalization, FREE-plan watermark), quality check, exports with signed download URLs, re-render/edit/delete, credit charges + automatic refunds on failure.
+
+Enable AI-quality results by setting keys in `.env` (all optional):
+`AI_PROVIDER=anthropic` + `AI_API_KEY` for LLM highlight selection, and
+`TRANSCRIPTION_PROVIDER=openai|deepgram` + `TRANSCRIPTION_API_KEY` for transcripts + captions.
+
+Run the full pipeline test against a running stack: `node scripts/e2e.mjs`
+
+Still ahead ([docs/ROADMAP.md](docs/ROADMAP.md)): the visual timeline editor, face tracking, templates, billing, admin.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full system design and
 [docs/API.md](docs/API.md) for the endpoint reference.

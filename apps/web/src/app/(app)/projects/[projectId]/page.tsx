@@ -22,6 +22,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/badge";
 import { ProgressBar } from "@/components/ui/progress";
+import { GenerateHighlightsCard } from "@/components/projects/generate-highlights-card";
+import { HighlightList } from "@/components/projects/highlight-list";
+import { ClipCard } from "@/components/projects/clip-card";
 
 const PROCESSING_STATUSES = [
   "IMPORTING",
@@ -50,8 +53,11 @@ export default function ProjectDetailPage({
         : false,
   });
 
-  const progress = useProjectProgress(projectId, () => {
+  const progress = useProjectProgress(projectId, (event) => {
     void queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+    if (event.clipId) {
+      void queryClient.invalidateQueries({ queryKey: ["clip", event.clipId] });
+    }
   });
 
   if (isLoading || !project) {
@@ -64,7 +70,11 @@ export default function ProjectDetailPage({
 
   const isProcessing = PROCESSING_STATUSES.includes(project.status);
   const showProgress =
-    isProcessing && progress && progress.status === project.status;
+    isProcessing && progress && !progress.clipId && progress.status === project.status;
+  const canGenerate =
+    project.source?.sourceType === "UPLOAD" &&
+    project.source?.duration != null &&
+    !isProcessing;
 
   const handleDelete = async () => {
     if (!window.confirm(`Delete "${project.name}" and all its files? This cannot be undone.`)) {
@@ -211,21 +221,51 @@ export default function ProjectDetailPage({
             </dl>
           </Card>
 
-          <Card>
-            <div className="flex items-center gap-2">
-              <Sparkles className="h-5 w-5 text-accent" />
-              <CardTitle>AI highlights</CardTitle>
-            </div>
-            <CardDescription className="mt-2">
-              {project.status === "IMPORTED"
-                ? "Source imported. Highlight generation arrives in Milestone 2 — transcript analysis, scoring, and clip suggestions."
-                : project.highlights.length > 0
-                  ? `${project.highlights.length} highlights found.`
-                  : "Highlights will appear here once the source is imported and analyzed."}
-            </CardDescription>
-          </Card>
+          {canGenerate ? (
+            <GenerateHighlightsCard
+              projectId={projectId}
+              hasHighlights={project.highlights.length > 0}
+            />
+          ) : (
+            <Card>
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-5 w-5 text-accent" />
+                <CardTitle>AI highlights</CardTitle>
+              </div>
+              <CardDescription className="mt-2">
+                {project.source?.sourceType === "YOUTUBE"
+                  ? "YouTube sources import metadata only — upload a video file you are authorized to use to generate highlights."
+                  : "Highlights become available once a video file is imported."}
+              </CardDescription>
+            </Card>
+          )}
         </div>
       </div>
+
+      {project.highlights.length > 0 && (
+        <section className="mt-8">
+          <div className="mb-3 flex items-center gap-2">
+            <Sparkles className="h-5 w-5 text-accent" />
+            <h2 className="text-lg font-semibold">
+              Highlight suggestions ({project.highlights.length})
+            </h2>
+          </div>
+          <HighlightList projectId={projectId} highlights={project.highlights} />
+        </section>
+      )}
+
+      {project.clips.length > 0 && (
+        <section className="mt-8">
+          <h2 className="mb-3 text-lg font-semibold">
+            Clips ({project.clips.length})
+          </h2>
+          <div className="space-y-4">
+            {project.clips.map((clip) => (
+              <ClipCard key={clip.id} clipId={clip.id} projectId={projectId} />
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

@@ -114,8 +114,10 @@ export async function generateThumbnail(
 }
 
 /**
- * Extracts mono 16 kHz AAC audio — compact and sufficient for
- * transcription providers in Milestone 2.
+ * Extracts compact mono AAC audio for transcription providers.
+ * The source sample rate is kept: forcing -ar 16000 makes the native
+ * AAC encoder pathologically slow (near-hang) on some content, and
+ * transcription APIs resample internally anyway.
  */
 export async function extractAudio(
   inputPath: string,
@@ -125,10 +127,10 @@ export async function extractAudio(
     FFMPEG,
     [
       "-y",
+      "-nostdin",
       "-i", inputPath,
       "-vn",
       "-ac", "1",
-      "-ar", "16000",
       "-c:a", "aac",
       "-b:a", "64k",
       outputPath,
