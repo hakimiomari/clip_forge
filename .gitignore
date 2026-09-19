@@ -33,7 +33,7 @@ Thumbs.db
 .idea/
 
 # Local storage / media scratch
-storage/
+/storage/
 tmp/
 *.mp4
 *.mov
