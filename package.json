@@ -21,6 +21,8 @@
     "db:deploy": "pnpm --filter @clipforge/database migrate:deploy",
     "db:studio": "pnpm --filter @clipforge/database studio",
     "infra:up": "docker compose -f docker/docker-compose.yml up -d",
-    "infra:down": "docker compose -f docker/docker-compose.yml down"
+    "infra:down": "docker compose -f docker/docker-compose.yml down",
+    "eval:corpus": "node scripts/eval/generate-corpus.mjs",
+    "eval": "node scripts/eval/run-eval.mjs --variants"
   }
 }
