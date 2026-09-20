@@ -84,6 +84,9 @@ export interface DownloadLink {
   fileName: string;
   downloadUrl: string;
   expiresIn: number;
+  /** Caption to post with the clip — saved alongside the MP4 */
+  title: string;
+  description: string;
 }
 
 export interface DashboardStats {

@@ -260,6 +260,7 @@ export async function processRenderVideo(job: Job<RenderVideoJob>): Promise<void
       rangeEffects: effectiveEffects,
       glowSpritePath,
       audio: plan.audio,
+      metadata: { title: clip.name, description: clip.description },
     };
 
     // AI subject cut-out: generate the per-frame mask before rendering

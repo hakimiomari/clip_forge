@@ -62,16 +62,34 @@ export function ClipCard({
     onError: (e) => setError(e instanceof ApiError ? e.message : String(e)),
   });
 
+  const saveFile = (href: string, fileName: string) => {
+    const a = document.createElement("a");
+    a.href = href;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
+  /**
+   * Saves the MP4 and, next to it, a text file holding the title and
+   * description — so the caption travels with the video instead of
+   * having to be copied out of the app separately.
+   */
   const handleDownload = async () => {
     setError(null);
     try {
       const link = await api<DownloadLink>(`/clips/${clipId}/download`);
-      const a = document.createElement("a");
-      a.href = link.downloadUrl;
-      a.download = link.fileName;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+      saveFile(link.downloadUrl, link.fileName);
+
+      if (link.title || link.description) {
+        const caption = `${link.title}\n\n${link.description}\n`;
+        const blob = new Blob([caption], { type: "text/plain;charset=utf-8" });
+        const blobUrl = URL.createObjectURL(blob);
+        saveFile(blobUrl, link.fileName.replace(/\.mp4$/i, "") + ".txt");
+        // Let the download start before the object URL is torn down
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 10_000);
+      }
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     }
@@ -137,9 +155,13 @@ export function ClipCard({
 
           <div className="mt-3 flex flex-wrap gap-2">
             {clip.status === "RENDERED" && (
-              <Button size="sm" onClick={handleDownload}>
+              <Button
+                size="sm"
+                onClick={handleDownload}
+                title="Saves the video and a .txt with its title and description"
+              >
                 <Download className="h-4 w-4" />
-                Download MP4
+                Download MP4 + caption
               </Button>
             )}
             {!isActive && (

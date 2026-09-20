@@ -659,7 +659,7 @@ export class ClipsService {
   }
 
   async download(clipId: string, userId: string): Promise<DownloadLink> {
-    await this.getOwned(clipId, userId);
+    const clip = await this.getOwned(clipId, userId);
     const latest = await this.prisma.export.findFirst({
       where: { clipId },
       orderBy: { createdAt: "desc" },
@@ -678,6 +678,10 @@ export class ClipsService {
       fileName: latest.fileName,
       downloadUrl,
       expiresIn: 3600,
+      // Sent with the link so the caption is saved next to the video and
+      // always reflects the latest edit, even without a re-render
+      title: clip.name ?? "",
+      description: clip.description ?? "",
     };
   }
 

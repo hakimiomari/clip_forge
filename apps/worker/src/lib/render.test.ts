@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   buildAudioFxChain,
   buildFilterGraph,
+  buildMetadataArgs,
   buildRenderArgs,
   escapeFilterPath,
   pickThreadCount,
@@ -158,4 +159,31 @@ void test("audio omitted for silent sources", () => {
   const args = buildRenderArgs({ ...baseSpec, hasAudio: false });
   assert.ok(args.includes("-an"));
   assert.ok(!args.join(" ").includes("[aout]"));
+});
+
+test("clip caption is written into the MP4's tags", () => {
+  const args = buildMetadataArgs({
+    title: "What a shot",
+    description: 'He said "unbelievable"\nover the ropes',
+  });
+  // Each value is its own argv entry, so quotes and newlines need no escaping
+  assert.deepEqual(args, [
+    "-metadata",
+    "title=What a shot",
+    "-metadata",
+    'comment=He said "unbelievable"\nover the ropes',
+    "-metadata",
+    'description=He said "unbelievable"\nover the ropes',
+  ]);
+});
+
+test("empty or missing caption adds no tags", () => {
+  assert.deepEqual(buildMetadataArgs(undefined), []);
+  assert.deepEqual(buildMetadataArgs({ title: "", description: null }), []);
+  assert.deepEqual(buildMetadataArgs({ title: "   " }), []);
+});
+
+test("a NUL byte is stripped — ffmpeg rejects it outright", () => {
+  const args = buildMetadataArgs({ title: "clean\u0000title" });
+  assert.deepEqual(args, ["-metadata", "title=cleantitle"]);
 });
