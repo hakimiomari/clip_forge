@@ -52,13 +52,28 @@ void test("pad mode used when blur background disabled", () => {
   assert.doesNotMatch(graph, /zoompan/);
 });
 
-void test("render args seek, bound duration and map streams", () => {
+void test("render args seek, bound input read and map streams", () => {
   const args = buildRenderArgs(baseSpec);
   const joined = args.join(" ");
-  assert.match(joined, /-ss 12\.000 -i C:\\tmp\\in\.mp4 -t 60\.000/);
+  // -t must be an INPUT option (before -i) so speed effects can lengthen
+  // the output beyond the source window
+  assert.match(joined, /-ss 12\.000 -t 60\.000 -i C:\\tmp\\in\.mp4/);
   assert.match(joined, /-map \[vout\] -map \[aout\]/);
   assert.match(joined, /-c:v libx264/);
   assert.match(joined, /\+faststart/);
+});
+
+void test("output duration is not capped when speed effects lengthen the clip", () => {
+  const args = buildRenderArgs({
+    ...baseSpec,
+    rangeEffects: [
+      { id: "s", type: "slow_motion", start: 10, end: 20, factor: 0.5 },
+    ],
+  });
+  // No output-side -t: nothing between the last input and the output path
+  // may cap the duration
+  const iIdx = args.indexOf("-i");
+  assert.ok(!args.slice(iIdx).includes("-t"), "-t must not appear after -i");
 });
 
 void test("audio omitted for silent sources", () => {

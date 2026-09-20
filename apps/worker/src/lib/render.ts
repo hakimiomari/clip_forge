@@ -151,9 +151,12 @@ export function buildRenderArgs(spec: RenderSpec): string[] {
     "-loglevel", "error",
     "-nostats",
     "-progress", "pipe:1",
+    // -ss AND -t before -i: both bound the INPUT read window. Placed after
+    // -i, -t caps the OUTPUT instead and truncates the extra time added by
+    // slow motion / freeze effects.
     "-ss", spec.sourceStart.toFixed(3),
-    "-i", spec.inputPath,
     "-t", dur.toFixed(3),
+    "-i", spec.inputPath,
   ];
   const hasTrail = (spec.rangeEffects ?? []).some((e) => e.type === "glow_trail");
   if (hasTrail && spec.glowSpritePath) {
