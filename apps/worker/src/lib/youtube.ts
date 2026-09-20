@@ -35,9 +35,15 @@ export interface YouTubeStreams {
   videoUrl: string | null;
 }
 
-// Best MP4 up to 1080p with audio, merged by ffmpeg; progressive fallback
+// Best MP4 up to 720p with audio, merged by ffmpeg; progressive fallback.
+// 720p (1280 wide) fully covers the 1080-wide vertical layout, and halves
+// the memory of the keyframe re-encode — 1080p sports footage has made
+// x264 fail malloc on busy machines.
 const CLIP_FORMAT =
-  "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/bv*[height<=1080]+ba/b";
+  "bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720][ext=mp4]/bv*[height<=720]+ba/b";
+// Last-resort format when even 720p re-encoding fails (low memory)
+const CLIP_FORMAT_FALLBACK =
+  "b[height<=480][ext=mp4]/bv*[height<=480]+ba/b[height<=480]/wv*+ba/w";
 
 /** Runs yt-dlp with args (no shell — args are never interpolated). */
 function runYtDlp(
@@ -75,13 +81,29 @@ function runYtDlp(
 
 /** Surfaces yt-dlp's own ERROR line (private video, geo-block…) to the user. */
 function friendlyError(stderr: string): string {
+  if (/malloc .*failed|Cannot allocate memory|Out of memory/i.test(stderr)) {
+    return (
+      "YouTube: the machine ran out of memory while re-encoding the clip section. " +
+      "Close other applications or retry — ClipForge also falls back to a lower resolution automatically."
+    );
+  }
   const line = stderr
     .split(/\r?\n/)
     .reverse()
     .find((l) => l.startsWith("ERROR:"));
-  return line
-    ? `YouTube: ${line.replace(/^ERROR:\s*(\[youtube\]\s*\S+:\s*)?/, "")}`
-    : `yt-dlp failed: ${stderr.slice(-500)}`;
+  if (!line) return `yt-dlp failed: ${stderr.slice(-500)}`;
+  let message = `YouTube: ${line.replace(/^ERROR:\s*(\[youtube\]\s*\S+:\s*)?/, "")}`;
+  // A bare "ffmpeg exited with code N" hides the real cause — attach the
+  // last ffmpeg error lines so failures are diagnosable.
+  if (/ffmpeg exited with code/i.test(message)) {
+    const detail = stderr
+      .split(/\r?\n/)
+      .filter((l) => /error|failed|invalid/i.test(l) && !l.startsWith("ERROR:"))
+      .slice(-3)
+      .join(" | ");
+    if (detail) message += ` (${detail.slice(0, 300)})`;
+  }
+  return message;
 }
 
 function watchUrl(videoId: string): string {
@@ -243,20 +265,32 @@ export async function downloadYouTubeSection(
   outputPath: string,
 ): Promise<void> {
   const seconds = Math.max(1, end - start);
-  await runYtDlp(
-    [
-      ...baseArgs(),
-      "--no-progress",
-      "--download-sections", `*${start.toFixed(3)}-${end.toFixed(3)}`,
-      "--force-keyframes-at-cuts",
-      "-f", CLIP_FORMAT,
-      "--merge-output-format", "mp4",
-      "-o", outputPath,
-      "--", watchUrl(videoId),
-    ],
-    // Section fetches re-encode at the cut; allow ~4x realtime plus slack
-    Math.max(5 * 60_000, seconds * 4_000),
-  );
+  const attempt = (format: string) =>
+    runYtDlp(
+      [
+        ...baseArgs(),
+        "--no-progress",
+        "--download-sections", `*${start.toFixed(3)}-${end.toFixed(3)}`,
+        "--force-keyframes-at-cuts",
+        "-f", format,
+        "--merge-output-format", "mp4",
+        "-o", outputPath,
+        "--", watchUrl(videoId),
+      ],
+      // Section fetches re-encode at the cut; allow ~4x realtime plus slack
+      Math.max(5 * 60_000, seconds * 4_000),
+    );
+
+  try {
+    await attempt(CLIP_FORMAT);
+  } catch (err) {
+    // Transient CDN errors and encoder memory failures both deserve one
+    // cheaper retry at lower resolution before giving up.
+    console.warn(
+      `YouTube section fetch failed at 720p, retrying at 480p: ${String(err).slice(0, 200)}`,
+    );
+    await attempt(CLIP_FORMAT_FALLBACK);
+  }
   const exists = await stat(outputPath).then(() => true, () => false);
   if (!exists) throw new Error("YouTube: section download produced no file");
 }
