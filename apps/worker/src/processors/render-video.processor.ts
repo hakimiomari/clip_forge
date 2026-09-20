@@ -157,7 +157,7 @@ export async function processRenderVideo(job: Job<RenderVideoJob>): Promise<void
       assPath,
       ctaAssPath,
       hasAudio: Boolean(source.audioKey) || true, // probe decides below
-      watermarkText: user.plan === "FREE" ? "Made with ClipForge" : undefined,
+      watermarkText: user.plan === "FREE" ? "Powered by ClipForge" : undefined,
       rangeEffects: plan.rangeEffects,
       glowSpritePath,
       audio: plan.audio,

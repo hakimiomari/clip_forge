@@ -113,9 +113,11 @@ Stop infrastructure with `pnpm infra:down` (data persists in Docker volumes).
 1. **Register** at http://localhost:3000 (any email works in dev; new accounts get 20 credits).
 2. **New project** → choose **Upload file** (MP4/MOV/MKV/WebM up to 4 GB), tick the rights confirmation, and create. The file goes straight to storage via a presigned URL; the worker probes it, makes a thumbnail, extracts audio, and marks the project **Imported** — progress streams live.
    - *YouTube URL* imports metadata in seconds (max 4 hours). Highlight analysis streams the audio and a low-res video feed through ffmpeg; each render fetches only that clip's window (best MP4 up to 1080p) with `yt-dlp`. Nothing from YouTube is stored except your rendered clips.
-3. On the project page, use **Generate AI highlights**: pick clip length (30–120 s), number of suggestions and caption style → **Find the best moments** (2 credits). Watch the analysis progress live.
-4. Each suggestion card shows a **score /100, title, time range, hook and the reason** it was selected. Click **Create clip** — the clip renders immediately (2 credits per 30 s).
-5. On the clip card: watch render progress, then **preview** the video, **Download MP4**, **Edit** (format, captions on/off, caption style, zoom → *Save & re-render*), **Re-render**, or **Delete**.
+3. On the project page, use **Generate AI highlights**: pick clip length (30–120 s), number of suggestions, caption style, and whether to use the transcript → **Find the best moments** (2 credits). Watch the analysis progress live. The collapsible **Transcript** panel shows the fetched transcript (YouTube captions are used automatically when available).
+4. Each suggestion card shows a **score /100, title, time range, hook and the reason** it was selected. Set the **Clip options** row first — captions on/off, slow zoom, background mode (blurred bars / fill screen / black bars), Like & Follow banner — then click **Create clip** (2 credits per 30 s).
+5. On the clip card: watch render progress, then **preview**, **Download MP4**, **Re-render**, **Delete**, or open the two editors:
+   - **Edit** — format, captions, background mode, **Voice & audio** (volume 0–300 %, pitch ±12 semitones, bass/treble, noise reduction, voice clarity, telephone/echo/robot effects, loudness normalization) and the **Like & Follow banner** (custom texts, top/bottom, start/middle/end/whole-clip or an exact from–until window)
+   - **Effects** — range-targeted effects: slow motion, speed-up, freeze frame, color grades, punch-in zoom, impact flash, a click-to-track **glow trail**, and **speed ramping** (keyframed velocity curve editor with Hero Moment / Bullet Time presets, frame blending or optical-flow interpolation, pitch-preserved audio)
 6. Click **your name** at the bottom of the sidebar for settings: profile, password change, and your full credit history.
 
 ## Credits
@@ -178,18 +180,27 @@ All variables live in the root `.env` (see `.env.example` for the annotated list
 | Video tools | `FFMPEG_PATH`, `FFPROBE_PATH` (empty = use PATH) |
 | Misc | `YTDLP_PATH` (optional, if `yt-dlp` isn't on PATH), `NEXT_PUBLIC_API_URL` |
 
-## Testing
+## Testing & evaluation
 
 ```bash
 pnpm test                          # everything
-pnpm --filter @clipforge/api test     # 17 Jest unit tests (auth, ownership, clips/credits)
-pnpm --filter @clipforge/worker test  # 15 node:test units (heuristics, captions/ASS, filtergraphs)
+pnpm --filter @clipforge/api test     # 26 Jest unit tests (auth, ownership, clips, effect validation)
+pnpm --filter @clipforge/worker test  # 43 node:test units (heuristics, captions, filtergraphs,
+                                      #   time map, speed ramp, effects, CTA banner)
 
 # Full pipeline integration test against a RUNNING stack:
 node scripts/e2e.mjs [optional-path-to-video.mp4]
 #   registers a throwaway user → uploads → imports → generates highlights
 #   → creates a clip → renders → downloads → verifies the MP4 with ffprobe
+
+# Highlight-quality benchmark (temporal IoU vs ground truth + attack robustness):
+pnpm eval:corpus   # once: build the deterministic ground-truth corpus
+pnpm eval          # run the benchmark → scripts/eval/eval-report.json
 ```
+
+**CI**: `.github/workflows/ci.yml` runs on every push/PR — unit tests, the
+highlight benchmark, and a quality gate that fails the build if mean
+temporal IoU drops below 0.85 or the hit rate below 90 %.
 
 ## Project structure
 
@@ -202,13 +213,17 @@ clipforge-ai/
 │   └── worker/               BullMQ processors + libs:
 │       ├── processors/       video-import, highlight-generation, render-video, cleanup
 │       └── lib/              ffmpeg, analysis, heuristics, llm, highlight-ai,
-│                             transcribe, captions (ASS), render, storage, progress
+│                             transcribe, youtube, captions (ASS), cta, render,
+│                             effects, time-map, speed-ramp, storage, progress
 ├── packages/
 │   ├── database/             Prisma schema, migrations, shared client
-│   └── shared-types/         Queue contracts, timeline & editing-plan JSON, API types
+│   └── shared-types/         Queue contracts, editing-plan (effects, ramps, CTA,
+│                             audio), timeline JSON, API types
 ├── docker/docker-compose.yml PostgreSQL + Redis + MinIO (+ bucket init)
 ├── docs/                     ARCHITECTURE.md · API.md · ROADMAP.md
-└── scripts/e2e.mjs           Full-pipeline integration test
+├── scripts/e2e.mjs           Full-pipeline integration test
+├── scripts/eval/             Highlight-quality benchmark (corpus + IoU metrics)
+└── .github/workflows/ci.yml  CI: tests + highlight quality gate
 ```
 
 ## API overview
