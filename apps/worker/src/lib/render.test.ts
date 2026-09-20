@@ -127,6 +127,17 @@ void test("audio tail honors fx, fade and normalize settings", () => {
   assert.match(graph, /afade=t=out/);
 });
 
+void test("render args bound thread counts to limit memory", () => {
+  const joined = buildRenderArgs(baseSpec).join(" ");
+  assert.match(joined, /-filter_complex_threads 2/);
+  assert.match(joined, /-threads 2/);
+  assert.match(joined, /sync-lookahead=0/);
+  // Low-memory retry drops to a single thread
+  const single = buildRenderArgs({ ...baseSpec, threads: 1 }).join(" ");
+  assert.match(single, /-filter_complex_threads 1/);
+  assert.match(single, /-threads 1/);
+});
+
 void test("audio omitted for silent sources", () => {
   const args = buildRenderArgs({ ...baseSpec, hasAudio: false });
   assert.ok(args.includes("-an"));

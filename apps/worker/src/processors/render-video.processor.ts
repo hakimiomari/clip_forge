@@ -214,6 +214,11 @@ export async function processRenderVideo(job: Job<RenderVideoJob>): Promise<void
       }
     };
 
+    const isOutOfMemory = (err: unknown) =>
+      /Cannot allocate memory|Out of memory|malloc .*failed|bad allocation/i.test(
+        String(err),
+      );
+
     try {
       await runRender(spec, onProgress);
     } catch (err) {
@@ -224,8 +229,29 @@ export async function processRenderVideo(job: Job<RenderVideoJob>): Promise<void
             `Install a full build (brew install ffmpeg-full) or set FFMPEG_PATH.`,
         );
       }
-      // Some FFmpeg builds lack fontconfig for drawtext — retry unwatermarked
-      if (spec.watermarkText) {
+
+      // Memory pressure: retry once fully single-threaded, which roughly
+      // halves ffmpeg's peak footprint at the cost of render speed.
+      if (isOutOfMemory(err)) {
+        console.warn(
+          `Render ran out of memory, retrying single-threaded: ${String(err).slice(0, 200)}`,
+        );
+        await updateRenderJob({ step: "Retrying in low-memory mode" });
+        await emit(progressBase, "Retrying in low-memory mode");
+        spec.threads = 1;
+        try {
+          await runRender(spec, onProgress);
+        } catch (retryErr) {
+          if (isOutOfMemory(retryErr)) {
+            throw new Error(
+              "Not enough free memory to render this clip. Close other applications " +
+                "(browser tabs, editors) and try again, or render a shorter clip.",
+            );
+          }
+          throw retryErr;
+        }
+      } else if (spec.watermarkText) {
+        // Some FFmpeg builds lack fontconfig for drawtext — retry unwatermarked
         console.warn(
           `Render failed with watermark, retrying without: ${String(err).slice(0, 200)}`,
         );
