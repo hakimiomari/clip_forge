@@ -277,6 +277,38 @@ export class ClipsService {
     const trimChanged =
       start !== segment.sourceStart || end !== segment.sourceEnd;
 
+    // Preserve existing audio settings, then layer the new ones on top
+    newPlan.audio = {
+      ...newPlan.audio,
+      ...plan.audio,
+      ...(dto.audio
+        ? {
+            ...(dto.audio.volume !== undefined
+              ? { originalVolume: dto.audio.volume }
+              : {}),
+            ...(dto.audio.pitchSemitones !== undefined
+              ? { pitchSemitones: dto.audio.pitchSemitones }
+              : {}),
+            ...(dto.audio.bassGain !== undefined ? { bassGain: dto.audio.bassGain } : {}),
+            ...(dto.audio.trebleGain !== undefined
+              ? { trebleGain: dto.audio.trebleGain }
+              : {}),
+            ...(dto.audio.noiseReduction !== undefined
+              ? { noiseReduction: dto.audio.noiseReduction }
+              : {}),
+            ...(dto.audio.voiceEnhance !== undefined
+              ? { voiceEnhance: dto.audio.voiceEnhance }
+              : {}),
+            ...(dto.audio.voiceEffect !== undefined
+              ? { voiceEffect: dto.audio.voiceEffect }
+              : {}),
+            ...(dto.audio.normalize !== undefined ? { normalize: dto.audio.normalize } : {}),
+            ...(dto.audio.fadeIn !== undefined ? { fadeIn: dto.audio.fadeIn } : {}),
+            ...(dto.audio.fadeOut !== undefined ? { fadeOut: dto.audio.fadeOut } : {}),
+          }
+        : {}),
+    };
+
     // Preserve advanced effects across plan rebuilds. If the trim window
     // moved, shift effect times so they stay anchored to the same source
     // moments; drop any that fall outside the new window.

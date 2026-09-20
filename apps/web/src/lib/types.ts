@@ -39,6 +39,16 @@ export interface ClipDetailResponse {
     rangeEffects?: Array<Record<string, unknown>>;
     background?: { type: string } | null;
     captions?: { enabled: boolean; style: string };
+    audio?: {
+      originalVolume?: number;
+      pitchSemitones?: number;
+      bassGain?: number;
+      trebleGain?: number;
+      noiseReduction?: boolean;
+      voiceEnhance?: boolean;
+      voiceEffect?: string;
+      normalize?: boolean;
+    };
   } | null;
   renderJob: {
     id: string;

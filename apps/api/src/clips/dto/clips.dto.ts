@@ -8,8 +8,81 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateNested,
 } from "class-validator";
 import { Type } from "class-transformer";
+
+export enum VoiceEffectDto {
+  none = "none",
+  telephone = "telephone",
+  echo = "echo",
+  robot = "robot",
+}
+
+/** Voice/audio controls; every field optional — omitted = unchanged. */
+export class AudioSettingsDto {
+  @ApiPropertyOptional({ description: "Gain 0–3 (1 = normal, 2 = double)" })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(3)
+  volume?: number;
+
+  @ApiPropertyOptional({ description: "Pitch in semitones, −12 (deep) … +12 (high)" })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(-12)
+  @Max(12)
+  pitchSemitones?: number;
+
+  @ApiPropertyOptional({ description: "Bass gain dB, −10…10" })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(-10)
+  @Max(10)
+  bassGain?: number;
+
+  @ApiPropertyOptional({ description: "Treble gain dB, −10…10" })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(-10)
+  @Max(10)
+  trebleGain?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  noiseReduction?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  voiceEnhance?: boolean;
+
+  @ApiPropertyOptional({ enum: VoiceEffectDto })
+  @IsOptional()
+  @IsEnum(VoiceEffectDto)
+  voiceEffect?: VoiceEffectDto;
+
+  @ApiPropertyOptional({ description: "Loudness normalization" })
+  @IsOptional()
+  @IsBoolean()
+  normalize?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  fadeIn?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  fadeOut?: boolean;
+}
 import {
   GenerateCaptionStyle,
   GenerateFormat,
@@ -115,4 +188,10 @@ export class UpdateClipDto {
   @IsNumber()
   @Min(1)
   sourceEnd?: number;
+
+  @ApiPropertyOptional({ type: AudioSettingsDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AudioSettingsDto)
+  audio?: AudioSettingsDto;
 }

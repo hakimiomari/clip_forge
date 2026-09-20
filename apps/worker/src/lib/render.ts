@@ -1,7 +1,7 @@
 import { spawn } from "child_process";
 import { FFMPEG } from "../env";
 import { track } from "./children";
-import type { RangeEffect } from "@clipforge/shared-types";
+import type { PlanAudio, RangeEffect } from "@clipforge/shared-types";
 import { buildTimeMap, type TimeMap } from "./time-map";
 import {
   buildGatedEffects,
@@ -38,6 +38,67 @@ export interface RenderSpec {
   rangeEffects?: RangeEffect[];
   /** Glow sprite PNG (required when a glow_trail effect is present) */
   glowSpritePath?: string;
+  /** Voice/audio controls (volume, pitch, EQ, effects) from the plan */
+  audio?: Partial<PlanAudio>;
+}
+
+/**
+ * Builds the voice-control filter chain applied before fades/loudnorm:
+ * gain → pitch shift (duration-preserving) → denoise → voice clarity →
+ * bass/treble shelves → character effect.
+ */
+export function buildAudioFxChain(audio: Partial<PlanAudio> | undefined): string {
+  if (!audio) return "";
+  const parts: string[] = [];
+
+  const vol = audio.originalVolume;
+  if (vol !== undefined && Math.abs(vol - 1) > 0.001) {
+    parts.push(`volume=${Math.max(0, Math.min(3, vol)).toFixed(2)}`);
+  }
+
+  const semis = audio.pitchSemitones ?? 0;
+  if (Math.abs(semis) >= 0.5) {
+    // asetrate shifts pitch AND speed; atempo undoes the speed change.
+    const factor = Math.pow(2, Math.max(-12, Math.min(12, semis)) / 12);
+    parts.push(
+      `asetrate=48000*${factor.toFixed(5)}`,
+      `aresample=48000`,
+      `atempo=${(1 / factor).toFixed(5)}`,
+    );
+  }
+
+  if (audio.noiseReduction) parts.push("afftdn=nf=-25");
+  if (audio.voiceEnhance) {
+    parts.push(
+      "highpass=f=80",
+      "equalizer=f=3000:t=q:w=1:g=3",
+      "acompressor=threshold=-18dB:ratio=3:attack=10:release=120",
+    );
+  }
+
+  const bass = audio.bassGain ?? 0;
+  if (Math.abs(bass) >= 0.5) {
+    parts.push(`bass=g=${Math.max(-10, Math.min(10, bass)).toFixed(1)}`);
+  }
+  const treble = audio.trebleGain ?? 0;
+  if (Math.abs(treble) >= 0.5) {
+    parts.push(`treble=g=${Math.max(-10, Math.min(10, treble)).toFixed(1)}`);
+  }
+
+  switch (audio.voiceEffect) {
+    case "telephone":
+      parts.push("highpass=f=300", "lowpass=f=3400");
+      break;
+    case "echo":
+      parts.push("aecho=0.8:0.7:60|180:0.4|0.2");
+      break;
+    case "robot":
+      parts.push(
+        "afftfilt=real='hypot(re,im)*sin(0)':imag='hypot(re,im)*cos(0)':win_size=512:overlap=0.75",
+      );
+      break;
+  }
+  return parts.length > 0 ? parts.join(",") + "," : "";
 }
 
 export function clipDuration(spec: Pick<RenderSpec, "sourceStart" | "sourceEnd">): number {
@@ -147,8 +208,15 @@ export function buildFilterGraph(spec: RenderSpec): string {
 
   if (spec.hasAudio) {
     const aFadeOut = Math.max(0, outDur - 0.4).toFixed(2);
+    // Fixed rate first: the pitch shifter's asetrate math assumes 48 kHz
+    const fx = buildAudioFxChain(spec.audio);
+    const fadeIn = spec.audio?.fadeIn === false ? "" : "afade=t=in:st=0:d=0.25,";
+    const fadeOut =
+      spec.audio?.fadeOut === false ? "" : `afade=t=out:st=${aFadeOut}:d=0.4,`;
+    const norm =
+      spec.audio?.normalize === false ? "" : ",loudnorm=I=-16:TP=-1.5:LRA=11";
     chains.push(
-      `[${aIn}]afade=t=in:st=0:d=0.25,afade=t=out:st=${aFadeOut}:d=0.4,loudnorm=I=-16:TP=-1.5:LRA=11[aout]`,
+      `[${aIn}]aformat=sample_rates=48000:channel_layouts=stereo,${fx}${fadeIn}${fadeOut}anull${norm}[aout]`,
     );
   }
 

@@ -209,12 +209,27 @@ export interface PlanCaptions {
   animation: "none" | "word_by_word" | "karaoke" | "sentence";
 }
 
+export type VoiceEffect = "none" | "telephone" | "echo" | "robot";
+
 export interface PlanAudio {
+  /** Gain on the original audio: 0–3 (1 = normal, 2 = double) */
   originalVolume: number;
   backgroundMusic: boolean;
   musicStorageKey?: string;
   musicVolume: number;
   fadeIn: boolean;
   fadeOut: boolean;
+  /** Loudness normalization (EBU R128) — default true */
   normalize?: boolean;
+  /** Voice pitch in semitones, −12 (deep) … +12 (high); duration unchanged */
+  pitchSemitones?: number;
+  /** Bass shelf gain in dB, −10…10 */
+  bassGain?: number;
+  /** Treble shelf gain in dB, −10…10 */
+  trebleGain?: number;
+  /** FFT denoiser for hiss/hum */
+  noiseReduction?: boolean;
+  /** High-pass + presence EQ + compression for clearer speech */
+  voiceEnhance?: boolean;
+  voiceEffect?: VoiceEffect;
 }

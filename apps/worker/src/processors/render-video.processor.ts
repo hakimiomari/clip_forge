@@ -142,6 +142,7 @@ export async function processRenderVideo(job: Job<RenderVideoJob>): Promise<void
       watermarkText: user.plan === "FREE" ? "Made with ClipForge" : undefined,
       rangeEffects: plan.rangeEffects,
       glowSpritePath,
+      audio: plan.audio,
     };
 
     // Respect the actual stream layout

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildAudioFxChain,
   buildFilterGraph,
   buildRenderArgs,
   escapeFilterPath,
@@ -87,6 +88,43 @@ void test("output duration is not capped when speed effects lengthen the clip", 
   // may cap the duration
   const iIdx = args.indexOf("-i");
   assert.ok(!args.slice(iIdx).includes("-t"), "-t must not appear after -i");
+});
+
+void test("audio fx chain: volume, pitch, EQ, effects", () => {
+  assert.equal(buildAudioFxChain(undefined), "");
+  assert.equal(buildAudioFxChain({ originalVolume: 1 }), "");
+  assert.match(buildAudioFxChain({ originalVolume: 2 }), /^volume=2\.00,/);
+  // +12 semitones = 2x rate, undone by atempo 0.5 (duration preserved)
+  const pitchUp = buildAudioFxChain({ pitchSemitones: 12 });
+  assert.match(pitchUp, /asetrate=48000\*2\.00000/);
+  assert.match(pitchUp, /atempo=0\.50000/);
+  const deep = buildAudioFxChain({ pitchSemitones: -12 });
+  assert.match(deep, /asetrate=48000\*0\.50000/);
+  assert.match(deep, /atempo=2\.00000/);
+  assert.match(buildAudioFxChain({ noiseReduction: true }), /afftdn/);
+  assert.match(buildAudioFxChain({ voiceEnhance: true }), /acompressor/);
+  assert.match(buildAudioFxChain({ bassGain: 6 }), /bass=g=6\.0/);
+  assert.match(buildAudioFxChain({ voiceEffect: "telephone" }), /highpass=f=300,lowpass=f=3400/);
+  assert.match(buildAudioFxChain({ voiceEffect: "robot" }), /afftfilt/);
+});
+
+void test("audio tail honors fx, fade and normalize settings", () => {
+  const graph = buildFilterGraph({
+    ...baseSpec,
+    audio: {
+      originalVolume: 2,
+      pitchSemitones: -5,
+      voiceEffect: "echo",
+      normalize: false,
+      fadeIn: false,
+      fadeOut: true,
+    },
+  });
+  assert.match(graph, /volume=2\.00/);
+  assert.match(graph, /aecho/);
+  assert.doesNotMatch(graph, /loudnorm/);
+  assert.doesNotMatch(graph, /afade=t=in/);
+  assert.match(graph, /afade=t=out/);
 });
 
 void test("audio omitted for silent sources", () => {

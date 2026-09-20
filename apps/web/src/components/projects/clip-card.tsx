@@ -247,6 +247,15 @@ function ClipEditor({
           ? "blur"
           : "black",
   );
+  const planAudio = clip.editingPlan?.audio;
+  const [volume, setVolume] = useState(planAudio?.originalVolume ?? 1);
+  const [pitch, setPitch] = useState(planAudio?.pitchSemitones ?? 0);
+  const [bassGain, setBassGain] = useState(planAudio?.bassGain ?? 0);
+  const [trebleGain, setTrebleGain] = useState(planAudio?.trebleGain ?? 0);
+  const [noiseReduction, setNoiseReduction] = useState(planAudio?.noiseReduction ?? false);
+  const [voiceEnhance, setVoiceEnhance] = useState(planAudio?.voiceEnhance ?? false);
+  const [voiceEffect, setVoiceEffect] = useState(planAudio?.voiceEffect ?? "none");
+  const [normalize, setNormalize] = useState(planAudio?.normalize ?? true);
   const [error, setError] = useState<string | null>(null);
 
   const save = useMutation({
@@ -260,6 +269,16 @@ function ClipEditor({
           captionStyle,
           zoomEnabled,
           backgroundMode,
+          audio: {
+            volume,
+            pitchSemitones: pitch,
+            bassGain,
+            trebleGain,
+            noiseReduction,
+            voiceEnhance,
+            voiceEffect,
+            normalize,
+          },
         },
       });
       if (opts.renderAfter) {
@@ -339,6 +358,112 @@ function ClipEditor({
           />
           Slow zoom
         </label>
+      </div>
+
+      <div className="space-y-3 rounded-lg border border-border bg-surface p-3">
+        <p className="text-sm font-semibold">🎙️ Voice & audio</p>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+          <div>
+            <Label>
+              Volume: {Math.round(volume * 100)}%
+              {volume === 2 ? " (double)" : volume === 0 ? " (muted)" : ""}
+            </Label>
+            <input
+              type="range"
+              min={0}
+              max={3}
+              step={0.1}
+              value={volume}
+              onChange={(e) => setVolume(Number(e.target.value))}
+              className="w-full accent-[#6d5cff]"
+            />
+          </div>
+          <div>
+            <Label>
+              Voice pitch:{" "}
+              {pitch === 0
+                ? "normal"
+                : pitch > 0
+                  ? `+${pitch} (higher)`
+                  : `${pitch} (deeper)`}
+            </Label>
+            <input
+              type="range"
+              min={-12}
+              max={12}
+              step={1}
+              value={pitch}
+              onChange={(e) => setPitch(Number(e.target.value))}
+              className="w-full accent-[#6d5cff]"
+            />
+          </div>
+          <div>
+            <Label>Bass: {bassGain > 0 ? `+${bassGain}` : bassGain} dB</Label>
+            <input
+              type="range"
+              min={-10}
+              max={10}
+              step={1}
+              value={bassGain}
+              onChange={(e) => setBassGain(Number(e.target.value))}
+              className="w-full accent-[#6d5cff]"
+            />
+          </div>
+          <div>
+            <Label>Treble: {trebleGain > 0 ? `+${trebleGain}` : trebleGain} dB</Label>
+            <input
+              type="range"
+              min={-10}
+              max={10}
+              step={1}
+              value={trebleGain}
+              onChange={(e) => setTrebleGain(Number(e.target.value))}
+              className="w-full accent-[#6d5cff]"
+            />
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
+          <label className="flex cursor-pointer items-center gap-2">
+            <input
+              type="checkbox"
+              checked={noiseReduction}
+              onChange={(e) => setNoiseReduction(e.target.checked)}
+              className="h-4 w-4 accent-[#6d5cff]"
+            />
+            Noise reduction
+          </label>
+          <label className="flex cursor-pointer items-center gap-2">
+            <input
+              type="checkbox"
+              checked={voiceEnhance}
+              onChange={(e) => setVoiceEnhance(e.target.checked)}
+              className="h-4 w-4 accent-[#6d5cff]"
+            />
+            Voice clarity
+          </label>
+          <label className="flex cursor-pointer items-center gap-2">
+            <input
+              type="checkbox"
+              checked={normalize}
+              onChange={(e) => setNormalize(e.target.checked)}
+              className="h-4 w-4 accent-[#6d5cff]"
+            />
+            Normalize loudness
+          </label>
+        </div>
+        <div>
+          <Label>Voice effect</Label>
+          <select
+            value={voiceEffect}
+            onChange={(e) => setVoiceEffect(e.target.value)}
+            className="h-9 w-full rounded-lg border border-border bg-surface-raised px-2 text-sm"
+          >
+            <option value="none">None</option>
+            <option value="telephone">Telephone / radio</option>
+            <option value="echo">Echo / stadium</option>
+            <option value="robot">Robot</option>
+          </select>
+        </div>
       </div>
       <FieldError message={error ?? undefined} />
       <div className="flex gap-2">
