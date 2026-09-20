@@ -1,4 +1,5 @@
 import { spawn } from "child_process";
+import os from "os";
 import { FFMPEG } from "../env";
 import { track } from "./children";
 import type { PlanAudio, RangeEffect } from "@clipforge/shared-types";
@@ -120,6 +121,26 @@ export function buildAudioFxChain(audio: Partial<PlanAudio> | undefined): string
 
 export function clipDuration(spec: Pick<RenderSpec, "sourceStart" | "sourceEnd">): number {
   return Math.max(0.5, spec.sourceEnd - spec.sourceStart);
+}
+
+/**
+ * Chooses ffmpeg's thread count from free memory. Every filter and
+ * encoder thread holds its own full-resolution frame buffers (~400 MB
+ * for the first, a few hundred more per extra thread at 1080x1920), and
+ * over-threading a memory-starved host is *slower*, not faster: the OS
+ * starts swapping and compressing. RENDER_THREADS overrides this.
+ */
+export function pickThreadCount(
+  freeBytes = os.freemem(),
+  cores = os.cpus().length,
+): number {
+  const override = Number(process.env.RENDER_THREADS);
+  if (Number.isFinite(override) && override >= 1) {
+    return Math.min(Math.floor(override), 16);
+  }
+  const freeGb = freeBytes / 1024 ** 3;
+  const budget = freeGb >= 6 ? 4 : freeGb >= 3 ? 2 : 1;
+  return Math.max(1, Math.min(budget, cores));
 }
 
 export function specTimeMap(spec: RenderSpec): TimeMap {
@@ -314,12 +335,7 @@ export function buildRenderArgs(spec: RenderSpec): string[] {
   } else {
     args.push("-an");
   }
-  // Bounded parallelism: every filter/encoder thread holds extra 1080p
-  // frame buffers, and this must survive on 8 GB machines alongside the
-  // dev stack. RENDER_THREADS raises it on beefier hosts.
-  const threads = String(
-    Math.max(1, spec.threads ?? (Number(process.env.RENDER_THREADS) || 2)),
-  );
+  const threads = String(spec.threads ?? pickThreadCount());
   args.push(
     "-filter_complex_threads", threads,
     "-c:v", "libx264",

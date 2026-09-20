@@ -5,6 +5,7 @@ import {
   buildFilterGraph,
   buildRenderArgs,
   escapeFilterPath,
+  pickThreadCount,
   type RenderSpec,
 } from "./render";
 
@@ -128,7 +129,7 @@ void test("audio tail honors fx, fade and normalize settings", () => {
 });
 
 void test("render args bound thread counts to limit memory", () => {
-  const joined = buildRenderArgs(baseSpec).join(" ");
+  const joined = buildRenderArgs({ ...baseSpec, threads: 2 }).join(" ");
   assert.match(joined, /-filter_complex_threads 2/);
   assert.match(joined, /-threads 2/);
   assert.match(joined, /sync-lookahead=0/);
@@ -136,6 +137,21 @@ void test("render args bound thread counts to limit memory", () => {
   const single = buildRenderArgs({ ...baseSpec, threads: 1 }).join(" ");
   assert.match(single, /-filter_complex_threads 1/);
   assert.match(single, /-threads 1/);
+});
+
+void test("thread count adapts to free memory", () => {
+  const GB = 1024 ** 3;
+  delete process.env.RENDER_THREADS;
+  // Memory-starved host: single thread (over-threading causes swapping)
+  assert.equal(pickThreadCount(1.5 * GB, 8), 1);
+  assert.equal(pickThreadCount(4 * GB, 8), 2);
+  assert.equal(pickThreadCount(12 * GB, 8), 4);
+  // Never exceeds the core count
+  assert.equal(pickThreadCount(12 * GB, 2), 2);
+  // Explicit override wins
+  process.env.RENDER_THREADS = "6";
+  assert.equal(pickThreadCount(1 * GB, 8), 6);
+  delete process.env.RENDER_THREADS;
 });
 
 void test("audio omitted for silent sources", () => {
