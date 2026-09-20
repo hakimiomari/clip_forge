@@ -1,12 +1,22 @@
 import { spawn } from "child_process";
 import { FFMPEG } from "../env";
 import { track } from "./children";
+import type { RangeEffect } from "@clipforge/shared-types";
+import { buildTimeMap, type TimeMap } from "./time-map";
+import {
+  buildGatedEffects,
+  buildGlowTrail,
+  buildSpeedChain,
+  remapGatedEffects,
+  remapTrail,
+} from "./effects";
 
 /**
  * FFmpeg render engine. Builds one filtergraph per clip:
- * trim → (blurred-background fill | pad) → optional slow zoom →
- * burned captions → fades → optional watermark, with loudness-normalized
- * audio. Remotion-based animated templates layer on in a later milestone.
+ * trim → speed chain (slow motion / speed-up / freeze) →
+ * (blurred-background fill | pad) → gated effects (color grade,
+ * punch-in, flash) → optional slow zoom → glow trail → burned captions
+ * → fades → optional watermark, with loudness-normalized audio.
  */
 
 export interface RenderSpec {
@@ -22,10 +32,23 @@ export interface RenderSpec {
   hasAudio: boolean;
   watermarkText?: string;
   fps?: number;
+  /** Advanced range effects; times relative to the trimmed clip */
+  rangeEffects?: RangeEffect[];
+  /** Glow sprite PNG (required when a glow_trail effect is present) */
+  glowSpritePath?: string;
 }
 
 export function clipDuration(spec: Pick<RenderSpec, "sourceStart" | "sourceEnd">): number {
   return Math.max(0.5, spec.sourceEnd - spec.sourceStart);
+}
+
+export function specTimeMap(spec: RenderSpec): TimeMap {
+  return buildTimeMap(spec.rangeEffects, clipDuration(spec));
+}
+
+/** Final output duration after speed effects (what QC should expect). */
+export function renderOutputDuration(spec: RenderSpec): number {
+  return specTimeMap(spec).outputDuration;
 }
 
 /**
@@ -38,32 +61,61 @@ export function escapeFilterPath(p: string): string {
 
 export function buildFilterGraph(spec: RenderSpec): string {
   const { width: w, height: h } = spec;
-  const dur = clipDuration(spec);
   const fps = spec.fps ?? 30;
   const chains: string[] = [];
 
+  const map = specTimeMap(spec);
+  const outDur = map.outputDuration;
+
+  // ── Speed chain (slow motion / speed-up / freeze) ──────
+  let vIn = "0:v";
+  let aIn = "0:a";
+  if (map.hasSpeedChanges) {
+    const speed = buildSpeedChain(map, spec.hasAudio);
+    chains.push(...speed.chains);
+    vIn = speed.vOut;
+    if (speed.aOut) aIn = speed.aOut;
+  }
+
+  // ── Layout ─────────────────────────────────────────────
   if (spec.blurBackground) {
     chains.push(
-      `[0:v]split=2[v0][v1]`,
+      `[${vIn}]split=2[v0][v1]`,
       `[v0]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},boxblur=luma_radius=28:luma_power=2,eq=brightness=-0.06[bg]`,
       `[v1]scale=${w}:${h}:force_original_aspect_ratio=decrease[fg]`,
       `[bg][fg]overlay=(W-w)/2:(H-h)/2[vbase]`,
     );
   } else {
     chains.push(
-      `[0:v]scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:color=black[vbase]`,
+      `[${vIn}]scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:color=black[vbase]`,
     );
   }
-
   let label = "vbase";
+
+  // ── Gated effects (ranges remapped to output time) ─────
+  const gated = remapGatedEffects(spec.rangeEffects, map);
+  if (gated.length > 0) {
+    const fx = buildGatedEffects(gated, label, w, h);
+    chains.push(...fx.chains);
+    label = fx.out;
+  }
+
   if (spec.zoom) {
     // Gentle continuous push-in, capped at 8%
-    const frames = Math.max(1, Math.round(dur * fps));
+    const frames = Math.max(1, Math.round(outDur * fps));
     const rate = (0.08 / frames).toFixed(8);
     chains.push(
       `[${label}]zoompan=z='min(zoom+${rate},1.08)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${w}x${h}:fps=${fps}[vzoom]`,
     );
     label = "vzoom";
+  }
+
+  // ── Glow trail (sprite is input #1) ────────────────────
+  const trail = (spec.rangeEffects ?? []).find((e) => e.type === "glow_trail");
+  if (trail && trail.type === "glow_trail" && spec.glowSpritePath) {
+    const t = buildGlowTrail(remapTrail(trail, map), label, 1, w, h, outDur);
+    chains.push(...t.chains);
+    label = t.out;
   }
 
   if (spec.assPath) {
@@ -73,7 +125,7 @@ export function buildFilterGraph(spec: RenderSpec): string {
     label = "vsub";
   }
 
-  const fadeOutStart = Math.max(0, dur - 0.45).toFixed(2);
+  const fadeOutStart = Math.max(0, outDur - 0.45).toFixed(2);
   let tail = `[${label}]fade=t=in:st=0:d=0.4,fade=t=out:st=${fadeOutStart}:d=0.45`;
   if (spec.watermarkText) {
     const size = Math.max(20, Math.round(h * 0.02));
@@ -83,9 +135,9 @@ export function buildFilterGraph(spec: RenderSpec): string {
   chains.push(`${tail}[vout]`);
 
   if (spec.hasAudio) {
-    const aFadeOut = Math.max(0, dur - 0.4).toFixed(2);
+    const aFadeOut = Math.max(0, outDur - 0.4).toFixed(2);
     chains.push(
-      `[0:a]afade=t=in:st=0:d=0.25,afade=t=out:st=${aFadeOut}:d=0.4,loudnorm=I=-16:TP=-1.5:LRA=11[aout]`,
+      `[${aIn}]afade=t=in:st=0:d=0.25,afade=t=out:st=${aFadeOut}:d=0.4,loudnorm=I=-16:TP=-1.5:LRA=11[aout]`,
     );
   }
 
@@ -102,9 +154,15 @@ export function buildRenderArgs(spec: RenderSpec): string[] {
     "-ss", spec.sourceStart.toFixed(3),
     "-i", spec.inputPath,
     "-t", dur.toFixed(3),
+  ];
+  const hasTrail = (spec.rangeEffects ?? []).some((e) => e.type === "glow_trail");
+  if (hasTrail && spec.glowSpritePath) {
+    args.push("-i", spec.glowSpritePath);
+  }
+  args.push(
     "-filter_complex", buildFilterGraph(spec),
     "-map", "[vout]",
-  ];
+  );
   if (spec.hasAudio) {
     args.push("-map", "[aout]", "-c:a", "aac", "-b:a", "192k");
   } else {
@@ -127,7 +185,7 @@ export async function runRender(
   spec: RenderSpec,
   onProgress?: (fraction: number) => void,
 ): Promise<void> {
-  const dur = clipDuration(spec);
+  const dur = renderOutputDuration(spec);
   const args = buildRenderArgs(spec);
   await new Promise<void>((resolve, reject) => {
     const child = track(spawn(FFMPEG, args, { windowsHide: true }));

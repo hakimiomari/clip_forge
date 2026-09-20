@@ -28,6 +28,99 @@ export interface EditingPlan {
     blurIntensity?: number;
     color?: string;
   };
+  /** Advanced range-targeted effects (slow motion, color grades, trails…) */
+  rangeEffects?: RangeEffect[];
+}
+
+// ── Advanced range effects ───────────────────────────────
+// Times are seconds relative to the clip start (the trimmed window).
+// Speed effects change the output duration; captions and gated effects
+// are re-timed through the resulting time map by the renderer.
+
+export type RangeEffect =
+  | SlowMotionEffect
+  | SpeedUpEffect
+  | FreezeFrameEffect
+  | ColorGradeEffect
+  | PunchInEffect
+  | FlashEffect
+  | GlowTrailEffect;
+
+export interface SlowMotionEffect {
+  id: string;
+  type: "slow_motion";
+  start: number;
+  end: number;
+  /** Playback speed, 0.25–0.9 (0.5 = half speed) */
+  factor: number;
+}
+
+export interface SpeedUpEffect {
+  id: string;
+  type: "speed_up";
+  start: number;
+  end: number;
+  /** Playback speed, 1.1–4 */
+  factor: number;
+}
+
+export interface FreezeFrameEffect {
+  id: string;
+  type: "freeze_frame";
+  /** Frame to hold (seconds) */
+  start: number;
+  /** Hold duration in seconds, 0.2–5 */
+  holdSeconds: number;
+}
+
+export type ColorPreset =
+  | "cinematic"
+  | "warm"
+  | "cool"
+  | "black_white"
+  | "vivid";
+
+export interface ColorGradeEffect {
+  id: string;
+  type: "color_grade";
+  start: number;
+  end: number;
+  preset: ColorPreset;
+}
+
+export interface PunchInEffect {
+  id: string;
+  type: "punch_in";
+  start: number;
+  end: number;
+  /** Zoom factor, 1.1–2 */
+  factor: number;
+}
+
+export interface FlashEffect {
+  id: string;
+  type: "flash";
+  /** Moment of impact (seconds) */
+  start: number;
+}
+
+export interface TrailKeyframe {
+  /** Seconds relative to clip start */
+  t: number;
+  /** Normalized 0–1 position in the output frame */
+  x: number;
+  y: number;
+}
+
+export interface GlowTrailEffect {
+  id: string;
+  type: "glow_trail";
+  /** 2–10 clicked positions of the tracked object */
+  keyframes: TrailKeyframe[];
+  /** Trail color as hex without # (default warm gold) */
+  color?: string;
+  /** 0.5–2 size multiplier */
+  size?: number;
 }
 
 export interface PlanSegment {

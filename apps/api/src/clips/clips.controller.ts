@@ -49,6 +49,15 @@ export class ClipsController {
     return this.clips.render(id, user.id);
   }
 
+  @Patch("clips/:id/effects")
+  updateEffects(
+    @CurrentUser() user: RequestUser,
+    @Param("id") id: string,
+    @Body() body: { effects: unknown },
+  ) {
+    return this.clips.updateEffects(id, user.id, body?.effects);
+  }
+
   @Get("clips/:id/render-status")
   async renderStatus(@CurrentUser() user: RequestUser, @Param("id") id: string) {
     const detail = await this.clips.detail(id, user.id);

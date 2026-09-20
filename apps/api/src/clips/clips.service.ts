@@ -19,6 +19,7 @@ import { StorageService } from "../storage/storage.service";
 import { UsageService } from "../usage/usage.service";
 import { HighlightsService } from "../highlights/highlights.service";
 import { CreateClipDto, UpdateClipDto } from "./dto/clips.dto";
+import { validateRangeEffects } from "./effects.validation";
 
 const RESOLUTIONS: Record<VideoFormat, string> = {
   vertical: "1080x1920",
@@ -268,6 +269,30 @@ export class ClipsService {
     const trimChanged =
       start !== segment.sourceStart || end !== segment.sourceEnd;
 
+    // Preserve advanced effects across plan rebuilds. If the trim window
+    // moved, shift effect times so they stay anchored to the same source
+    // moments; drop any that fall outside the new window.
+    const shift = segment.sourceStart - start;
+    const newDuration = end - start;
+    newPlan.rangeEffects = (plan.rangeEffects ?? [])
+      .map((e) => {
+        if (e.type === "glow_trail") {
+          const keyframes = e.keyframes
+            .map((k) => ({ ...k, t: k.t + shift }))
+            .filter((k) => k.t >= 0 && k.t <= newDuration);
+          return keyframes.length >= 2 ? { ...e, keyframes } : null;
+        }
+        const start2 = (e as { start: number }).start + shift;
+        const end2 = "end" in e ? (e as { end: number }).end + shift : start2;
+        if (end2 < 0 || start2 > newDuration) return null;
+        return {
+          ...e,
+          start: Math.max(0, start2),
+          ...("end" in e ? { end: Math.min(newDuration, end2) } : {}),
+        } as typeof e;
+      })
+      .filter((e): e is NonNullable<typeof e> => e !== null);
+
     const updated = await this.prisma.clip.update({
       where: { id: clipId },
       data: {
@@ -283,6 +308,30 @@ export class ClipsService {
       await this.syncCaptionsFromTranscript(clipId, clip.projectId, start, end);
     }
     return updated;
+  }
+
+  /** Replaces the clip's advanced range effects (validated server-side). */
+  async updateEffects(clipId: string, userId: string, effects: unknown) {
+    const clip = await this.getOwned(clipId, userId);
+    if (["RENDER_QUEUED", "RENDERING"].includes(clip.status)) {
+      throw new BadRequestException("Wait for the current render to finish");
+    }
+    const plan = clip.editingPlan as unknown as EditingPlan | null;
+    const segment = plan?.segments?.[0];
+    if (!plan || !segment) {
+      throw new BadRequestException("Clip has no editing plan");
+    }
+    const clipDuration = segment.sourceEnd - segment.sourceStart;
+    const validated = validateRangeEffects(effects, clipDuration);
+    const newPlan: EditingPlan = { ...plan, rangeEffects: validated };
+    await this.prisma.clip.update({
+      where: { id: clipId },
+      data: {
+        status: clip.status === "RENDERED" ? "EDITING" : clip.status,
+        editingPlan: newPlan as unknown as Prisma.InputJsonValue,
+      },
+    });
+    return { ok: true, effects: validated };
   }
 
   async download(clipId: string, userId: string): Promise<DownloadLink> {

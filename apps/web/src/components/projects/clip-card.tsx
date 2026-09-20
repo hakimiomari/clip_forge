@@ -9,7 +9,9 @@ import {
   RefreshCcw,
   Trash2,
   AlertTriangle,
+  Wand2,
 } from "lucide-react";
+import { EffectsEditor, type EffectItem } from "./effects-editor";
 import { api, ApiError } from "@/lib/api";
 import type { ClipDetailResponse } from "@/lib/types";
 import type { DownloadLink } from "@clipforge/shared-types";
@@ -31,6 +33,7 @@ export function ClipCard({
 }) {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
+  const [showEffects, setShowEffects] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const { data: clip } = useQuery({
@@ -140,10 +143,24 @@ export function ClipCard({
                 <Button
                   size="sm"
                   variant="secondary"
-                  onClick={() => setEditing((v) => !v)}
+                  onClick={() => {
+                    setEditing((v) => !v);
+                    setShowEffects(false);
+                  }}
                 >
                   <Pencil className="h-4 w-4" />
                   {editing ? "Close editor" : "Edit"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => {
+                    setShowEffects((v) => !v);
+                    setEditing(false);
+                  }}
+                >
+                  <Wand2 className="h-4 w-4" />
+                  {showEffects ? "Close effects" : "Effects"}
                 </Button>
                 <Button
                   size="sm"
@@ -175,6 +192,26 @@ export function ClipCard({
               clip={clip}
               onSaved={() => {
                 setEditing(false);
+                invalidate();
+              }}
+            />
+          )}
+
+          {showEffects && !isActive && (
+            <EffectsEditor
+              clipId={clip.id}
+              clipDuration={
+                clip.editingPlan?.segments?.[0]
+                  ? clip.editingPlan.segments[0].sourceEnd -
+                    clip.editingPlan.segments[0].sourceStart
+                  : (clip.duration ?? 60)
+              }
+              previewUrl={clip.previewUrl}
+              initialEffects={
+                (clip.editingPlan?.rangeEffects ?? []) as unknown as EffectItem[]
+              }
+              onSaved={(rendered) => {
+                if (rendered) setShowEffects(false);
                 invalidate();
               }}
             />

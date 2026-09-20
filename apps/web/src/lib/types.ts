@@ -34,6 +34,10 @@ export interface ClipDetailResponse {
   format: string | null;
   resolution: string | null;
   duration: number | null;
+  editingPlan?: {
+    segments?: Array<{ sourceStart: number; sourceEnd: number }>;
+    rangeEffects?: Array<Record<string, unknown>>;
+  } | null;
   renderJob: {
     id: string;
     status: string;

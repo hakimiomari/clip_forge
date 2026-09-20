@@ -11,6 +11,8 @@ import { uploadFile } from "../lib/storage";
 import { publishProgress } from "../lib/progress";
 import { refundCredits } from "../lib/credits";
 import { downloadYouTubeSection } from "../lib/youtube";
+import { buildTimeMap } from "../lib/time-map";
+import { createGlowSprite } from "../lib/effects";
 
 /**
  * render-video: Rendering Agent + Quality Control Agent.
@@ -44,6 +46,10 @@ export async function processRenderVideo(job: Job<RenderVideoJob>): Promise<void
 
   const projectId = clip.projectId;
   const duration = segment.sourceEnd - segment.sourceStart;
+  // Speed effects (slow motion, freeze…) change the output duration and
+  // shift everything downstream of them — captions and QC use this map.
+  const timeMap = buildTimeMap(plan.rangeEffects, duration);
+  const outputDuration = timeMap.outputDuration;
 
   const emit = (progress: number, step: string) =>
     publishProgress({
@@ -87,8 +93,8 @@ export async function processRenderVideo(job: Job<RenderVideoJob>): Promise<void
     let assPath: string | undefined;
     if (plan.captions.enabled && clip.captions.length > 0) {
       const lines: CaptionLine[] = clip.captions.map((c) => ({
-        startTime: c.startTime,
-        endTime: c.endTime,
+        startTime: timeMap.toOutput(c.startTime),
+        endTime: timeMap.toOutput(c.endTime),
         text: c.text,
       }));
       const [w, h] = plan.resolution.split("x").map(Number);
@@ -111,6 +117,16 @@ export async function processRenderVideo(job: Job<RenderVideoJob>): Promise<void
       select: { plan: true },
     });
 
+    // Glow trail needs its sprite rendered up front
+    let glowSpritePath: string | undefined;
+    const trailEffect = (plan.rangeEffects ?? []).find(
+      (e) => e.type === "glow_trail",
+    );
+    if (trailEffect && trailEffect.type === "glow_trail") {
+      glowSpritePath = work.file("glow.png");
+      await createGlowSprite(glowSpritePath, trailEffect.color ?? "ffd25a");
+    }
+
     const spec: RenderSpec = {
       inputPath,
       outputPath: work.file("output.mp4"),
@@ -123,6 +139,8 @@ export async function processRenderVideo(job: Job<RenderVideoJob>): Promise<void
       assPath,
       hasAudio: Boolean(source.audioKey) || true, // probe decides below
       watermarkText: user.plan === "FREE" ? "Made with ClipForge" : undefined,
+      rangeEffects: plan.rangeEffects,
+      glowSpritePath,
     };
 
     // Respect the actual stream layout
@@ -169,9 +187,9 @@ export async function processRenderVideo(job: Job<RenderVideoJob>): Promise<void
     await updateRenderJob({ progress: 96, step: "Quality check" });
     await emit(96, "Quality check");
     const output = await probeVideo(spec.outputPath);
-    if (Math.abs(output.durationSeconds - duration) > 2) {
+    if (Math.abs(output.durationSeconds - outputDuration) > 2) {
       throw new Error(
-        `Quality check failed: output duration ${output.durationSeconds.toFixed(1)}s differs from expected ${duration.toFixed(1)}s`,
+        `Quality check failed: output duration ${output.durationSeconds.toFixed(1)}s differs from expected ${outputDuration.toFixed(1)}s`,
       );
     }
     if (spec.hasAudio && !output.hasAudio) {
@@ -199,7 +217,7 @@ export async function processRenderVideo(job: Job<RenderVideoJob>): Promise<void
       }),
       prisma.clip.update({
         where: { id: clipId },
-        data: { status: "RENDERED", renderedKey: storageKey, duration },
+        data: { status: "RENDERED", renderedKey: storageKey, duration: outputDuration },
       }),
       prisma.renderJob.update({
         where: { id: renderJobId },
