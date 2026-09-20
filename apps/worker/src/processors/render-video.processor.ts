@@ -16,10 +16,24 @@ import { buildTimeMap } from "../lib/time-map";
 import { createGlowSprite } from "../lib/effects";
 import { buildCtaAss } from "../lib/cta";
 import { generateMaskVideo } from "../lib/bg-removal";
-import { stylizeVideo } from "../lib/cartoon";
+import { CARTOON_LONG_EDGE, stylizeVideo } from "../lib/cartoon";
 
 /** Burned into every free-plan render, top-centre. */
 const WATERMARK_TEXT = "Powerd by CricPulse";
+
+/**
+ * How large to stylize.
+ *
+ * The footage is scaled to the export's *width* (with blurred bars
+ * filling the rest on a vertical frame), so that width — not the frame's
+ * long edge — is the size the stylized pixels are actually shown at.
+ * Going bigger is wasted work; going smaller means an upscale that
+ * softens every edge the model just drew.
+ */
+function cartoonLongEdge(plan: EditingPlan): number {
+  const exportWidth = Number(plan.resolution.split("x")[0]) || 1080;
+  return Math.min(CARTOON_LONG_EDGE[plan.cartoon?.quality ?? "high"], exportWidth);
+}
 
 /**
  * render-video: Rendering Agent + Quality Control Agent.
@@ -156,6 +170,9 @@ export async function processRenderVideo(job: Job<RenderVideoJob>): Promise<void
         outPath: cartoonPath,
         style: plan.cartoon.style,
         fps: plan.cartoon.fps,
+        // Cap at the export's own resolution: stylizing larger than the
+        // frame it lands in is wasted work
+        longEdge: cartoonLongEdge(plan),
         sourceWidth: probe.width ?? 1280,
         sourceHeight: probe.height ?? 720,
         hasAudio: probe.hasAudio,

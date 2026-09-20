@@ -465,6 +465,7 @@ export class ClipsService {
       enabled: false,
       style: "hayao",
       fps: 12,
+      quality: "high",
       ...plan.cartoon,
       ...(dto.cartoon
         ? Object.fromEntries(
@@ -686,5 +687,6 @@ function normalizeCartoon(
     enabled: true,
     style: cartoon.style ?? "hayao",
     fps: cartoon.fps ?? 12,
+    quality: cartoon.quality ?? "high",
   };
 }

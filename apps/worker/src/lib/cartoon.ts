@@ -33,16 +33,36 @@ const MODEL_URLS: Record<CartoonStyle, string> = {
  * cartoon-like than 30 — and costs 2.5x less inference.
  */
 export const DEFAULT_CARTOON_FPS = 12;
-/** Long edge fed to the model; the render upscales afterwards. */
-export const DEFAULT_CARTOON_WIDTH = 512;
+/**
+ * Long edge fed to the model.
+ *
+ * "high" matches a 1080-wide export, so stylized frames go into the
+ * render at their final size with no upscale — visibly sharper faces
+ * and edges. "standard" is the fast draft setting. Measured on CPU:
+ * ~170 ms/frame at 512, ~260 ms at 720, ~620 ms at 1024.
+ */
+export const CARTOON_LONG_EDGE: Record<CartoonQuality, number> = {
+  standard: 512,
+  // Ceiling only: the caller lowers this to the export's own width, and
+  // the source's size lowers it again, so nothing is ever upscaled
+  high: 1920,
+};
 
-/** The network needs both sides to be a multiple of 8. */
+export type CartoonQuality = "standard" | "high";
+
+/**
+ * Model input size: the requested long edge, but never larger than the
+ * source itself — enlarging before stylizing costs time and invents no
+ * detail. Both sides must be a multiple of 8 for the network.
+ */
 export function modelDimensions(
   width: number,
   height: number,
   longEdge: number,
 ): { width: number; height: number } {
-  const scale = longEdge / Math.max(width, height);
+  const sourceLongEdge = Math.max(width, height);
+  const target = Math.min(longEdge, sourceLongEdge);
+  const scale = target / sourceLongEdge;
   const round8 = (n: number) => Math.max(8, Math.round(n / 8) * 8);
   return { width: round8(width * scale), height: round8(height * scale) };
 }
@@ -104,7 +124,7 @@ export async function stylizeVideo(options: {
   const { width, height } = modelDimensions(
     options.sourceWidth,
     options.sourceHeight,
-    options.longEdge ?? DEFAULT_CARTOON_WIDTH,
+    options.longEdge ?? CARTOON_LONG_EDGE.high,
   );
   const frameBytes = width * height * 3;
   const expectedFrames = Math.max(1, Math.ceil(options.duration * fps));
@@ -118,7 +138,9 @@ export async function stylizeVideo(options: {
         "-t", options.duration.toFixed(3),
         "-i", options.inputPath,
         "-an",
-        "-vf", `fps=${fps},scale=${width}:${height}`,
+        // Lanczos keeps edges crisp going into the model, which matters
+        // more here than usual: the model amplifies whatever it is given
+        "-vf", `fps=${fps},scale=${width}:${height}:flags=lanczos`,
         "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1",
       ],
       { windowsHide: true },
@@ -146,7 +168,9 @@ export async function stylizeVideo(options: {
   encoderArgs.push(
     "-c:v", "libx264",
     "-preset", "veryfast",
-    "-crf", "18",
+    // Near-lossless: this intermediate is re-encoded by the real render,
+    // so generation loss here would show up in the final clip
+    "-crf", "14",
     "-pix_fmt", "yuv420p",
     "-shortest",
     "-y", options.outPath,

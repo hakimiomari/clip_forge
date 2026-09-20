@@ -198,6 +198,15 @@ export class CartoonDto {
   @Min(8)
   @Max(30)
   fps?: number;
+
+  @ApiPropertyOptional({
+    enum: ["standard", "high"],
+    default: "high",
+    description: "high = stylize at export resolution (sharper, slower)",
+  })
+  @IsOptional()
+  @IsIn(["standard", "high"])
+  quality?: "standard" | "high";
 }
 
 export class CreateClipDto {

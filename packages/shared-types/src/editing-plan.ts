@@ -55,7 +55,15 @@ export interface PlanCartoon {
   style: CartoonStyleName;
   /** Frames per second to stylize at — 12 reads as hand-drawn */
   fps: number;
+  /**
+   * "high" stylizes at the export's own resolution (no upscale after
+   * the model, so faces and edges stay sharp); "standard" is a faster
+   * draft at 512px.
+   */
+  quality: CartoonQuality;
 }
+
+export type CartoonQuality = "standard" | "high";
 
 // ── Advanced range effects ───────────────────────────────
 // Times are seconds relative to the clip start (the trimmed window).

@@ -264,6 +264,7 @@ function ClipEditor({
   const [cartoonEnabled, setCartoonEnabled] = useState(planCartoon?.enabled ?? false);
   const [cartoonStyle, setCartoonStyle] = useState(planCartoon?.style ?? "hayao");
   const [cartoonFps, setCartoonFps] = useState(String(planCartoon?.fps ?? 12));
+  const [cartoonQuality, setCartoonQuality] = useState(planCartoon?.quality ?? "high");
   const planCta = clip.editingPlan?.cta;
   const [ctaEnabled, setCtaEnabled] = useState(planCta?.enabled ?? true);
   const [ctaLike, setCtaLike] = useState(planCta?.likeText ?? "LIKE");
@@ -306,6 +307,7 @@ function ClipEditor({
             enabled: cartoonEnabled,
             style: cartoonStyle,
             fps: Number(cartoonFps) || 12,
+            quality: cartoonQuality,
           },
           cta: {
             enabled: ctaEnabled,
@@ -541,11 +543,24 @@ function ClipEditor({
                 </select>
               </div>
             </div>
+            <div>
+              <Label>Detail</Label>
+              <select
+                value={cartoonQuality}
+                onChange={(e) => setCartoonQuality(e.target.value)}
+                className="h-9 w-full rounded-lg border border-border bg-surface-raised px-2 text-sm"
+              >
+                <option value="high">
+                  High — drawn at full export size (sharpest)
+                </option>
+                <option value="standard">Standard — 512px draft (≈4x faster)</option>
+              </select>
+            </div>
             <p className="text-xs text-warning">
-              Redraws every frame with a local AI model, so the render takes
-              longer — roughly a minute per 10s of clip at 12 fps. Captions and
-              the banner stay sharp on top. Can&apos;t be combined with
-              background removal.
+              Redraws every frame with a local AI model. At High detail expect
+              roughly 1½ minutes per 10s of clip at 12 fps; Standard is a quick
+              draft. Captions and the banner stay sharp on top either way.
+              Can&apos;t be combined with background removal.
             </p>
           </>
         )}

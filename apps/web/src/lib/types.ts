@@ -48,6 +48,7 @@ export interface ClipDetailResponse {
       enabled: boolean;
       style?: string;
       fps?: number;
+      quality?: string;
     };
     cta?: {
       enabled: boolean;
