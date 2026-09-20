@@ -1,0 +1,83 @@
+{
+  "duration": 150,
+  "videos": [
+    {
+      "file": "eval_01.mp4",
+      "groundTruth": [
+        {
+          "start": 37,
+          "end": 66
+        },
+        {
+          "start": 98,
+          "end": 126
+        }
+      ]
+    },
+    {
+      "file": "eval_02.mp4",
+      "groundTruth": [
+        {
+          "start": 11,
+          "end": 39
+        },
+        {
+          "start": 60,
+          "end": 82
+        }
+      ]
+    },
+    {
+      "file": "eval_03.mp4",
+      "groundTruth": [
+        {
+          "start": 21,
+          "end": 52
+        },
+        {
+          "start": 73,
+          "end": 103
+        }
+      ]
+    },
+    {
+      "file": "eval_04.mp4",
+      "groundTruth": [
+        {
+          "start": 24,
+          "end": 57
+        },
+        {
+          "start": 79,
+          "end": 112
+        }
+      ]
+    },
+    {
+      "file": "eval_05.mp4",
+      "groundTruth": [
+        {
+          "start": 34,
+          "end": 65
+        },
+        {
+          "start": 83,
+          "end": 117
+        }
+      ]
+    },
+    {
+      "file": "eval_06.mp4",
+      "groundTruth": [
+        {
+          "start": 25,
+          "end": 46
+        },
+        {
+          "start": 80,
+          "end": 104
+        }
+      ]
+    }
+  ]
+}

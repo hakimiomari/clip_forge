@@ -1,0 +1,32 @@
+{
+  "generatedAt": "2026-09-20T08:34:28.791Z",
+  "layer4": {
+    "segments": 12,
+    "meanIoU": 0.9175890786422096,
+    "hitRateAt50": 1,
+    "startMAE": 0.5833333333333334,
+    "endMAE": 1.9166666666666667
+  },
+  "layer3": {
+    "compress crf38": {
+      "gtIoU": 0.9091397849462366,
+      "stability": 0.9166666666666667
+    },
+    "resize 240p": {
+      "gtIoU": 0.9091397849462366,
+      "stability": 1
+    },
+    "brightness +25%": {
+      "gtIoU": 0.9091397849462366,
+      "stability": 1
+    },
+    "fps 30→15": {
+      "gtIoU": 0.9091397849462366,
+      "stability": 1
+    },
+    "speed 1.25x": {
+      "gtIoU": 0.6958856846627743,
+      "stability": 0.6339406267037846
+    }
+  }
+}
