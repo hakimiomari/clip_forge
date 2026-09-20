@@ -1,0 +1,115 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+env:
+  # Worker/env validation needs values to exist; none are used by the
+  # unit tests or the highlight benchmark (no DB/Redis/S3 is contacted).
+  DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+  REDIS_URL: redis://localhost:6379
+  JWT_SECRET: ci-only-jwt-secret-not-real-0123456789
+  JWT_REFRESH_SECRET: ci-only-refresh-secret-not-real-0123456789
+  S3_ENDPOINT: http://localhost:9000
+  S3_ACCESS_KEY: ci
+  S3_SECRET_KEY: ci
+  S3_BUCKET: ci
+  # pnpm-workspace.yaml serializes downloads for slow dev connections;
+  # CI runners are fast, so restore normal parallelism there.
+  npm_config_network_concurrency: "16"
+  npm_config_fetch_retries: "3"
+  npm_config_fetch_timeout: "120000"
+
+jobs:
+  test-and-eval:
+    name: Tests + highlight quality gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
+      - name: Build packages and apps
+        run: |
+          pnpm --filter @clipforge/database build
+          pnpm --filter @clipforge/shared-types build
+          pnpm --filter @clipforge/worker build
+          pnpm --filter @clipforge/api build
+
+      - name: Worker unit tests
+        run: pnpm --filter @clipforge/worker test
+
+      - name: API unit tests
+        run: pnpm --filter @clipforge/api test
+
+      - name: Generate evaluation corpus
+        run: pnpm eval:corpus
+
+      - name: Run highlight benchmark (Layer 3 + 4)
+        run: pnpm eval
+
+      - name: Quality gate — fail if highlight quality regressed
+        run: |
+          node -e "
+            const r = require('./scripts/eval/eval-report.json');
+            const { meanIoU, hitRateAt50 } = r.layer4;
+            console.log('mean IoU:', meanIoU.toFixed(3), '| hit rate:', (hitRateAt50*100).toFixed(0) + '%');
+            if (meanIoU < 0.85) { console.error('FAIL: mean temporal IoU below 0.85'); process.exit(1); }
+            if (hitRateAt50 < 0.9) { console.error('FAIL: hit rate below 90%'); process.exit(1); }
+            const speed = r.layer3 && r.layer3['speed 1.25x'];
+            if (speed && speed.gtIoU < 0.5) { console.error('FAIL: speed-change robustness collapsed below 0.5'); process.exit(1); }
+            console.log('Quality gate passed.');
+          "
+
+      - name: Upload evaluation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report
+          path: scripts/eval/eval-report.json
+
+  build-web:
+    name: Web build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared types
+        run: pnpm --filter @clipforge/shared-types build
+
+      - name: Build web app
+        run: pnpm --filter @clipforge/web build
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:4000
