@@ -37,6 +37,8 @@ export interface ClipDetailResponse {
   editingPlan?: {
     segments?: Array<{ sourceStart: number; sourceEnd: number }>;
     rangeEffects?: Array<Record<string, unknown>>;
+    background?: { type: string } | null;
+    captions?: { enabled: boolean; style: string };
   } | null;
   renderJob: {
     id: string;

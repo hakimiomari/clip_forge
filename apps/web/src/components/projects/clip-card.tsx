@@ -231,16 +231,36 @@ function ClipEditor({
 }) {
   const [name, setName] = useState(clip.name ?? "");
   const [format, setFormat] = useState(clip.format ?? "vertical");
-  const [captionsEnabled, setCaptionsEnabled] = useState(true);
-  const [captionStyle, setCaptionStyle] = useState("bold_dynamic");
+  const [captionsEnabled, setCaptionsEnabled] = useState(
+    clip.editingPlan?.captions?.enabled ?? true,
+  );
+  const [captionStyle, setCaptionStyle] = useState(
+    clip.editingPlan?.captions?.style ?? "bold_dynamic",
+  );
   const [zoomEnabled, setZoomEnabled] = useState(true);
+  const [backgroundMode, setBackgroundMode] = useState(
+    clip.editingPlan?.background?.type === "crop_fill"
+      ? "fill"
+      : clip.editingPlan?.background?.type === "blurred_original"
+        ? "blur"
+        : clip.editingPlan?.background
+          ? "blur"
+          : "black",
+  );
   const [error, setError] = useState<string | null>(null);
 
   const save = useMutation({
     mutationFn: async (opts: { renderAfter: boolean }) => {
       await api(`/clips/${clip.id}`, {
         method: "PATCH",
-        body: { name: name || undefined, format, captionsEnabled, captionStyle, zoomEnabled },
+        body: {
+          name: name || undefined,
+          format,
+          captionsEnabled,
+          captionStyle,
+          zoomEnabled,
+          backgroundMode,
+        },
       });
       if (opts.renderAfter) {
         await api(`/clips/${clip.id}/render`, { method: "POST" });
@@ -285,6 +305,18 @@ function ClipEditor({
             <option value="professional">Professional</option>
             <option value="podcast">Podcast</option>
             <option value="news">News</option>
+          </select>
+        </div>
+        <div className="col-span-2">
+          <Label>Background</Label>
+          <select
+            value={backgroundMode}
+            onChange={(e) => setBackgroundMode(e.target.value)}
+            className="h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm"
+          >
+            <option value="blur">Blurred bars (fit whole video)</option>
+            <option value="fill">Fill screen (crop the sides, no bars)</option>
+            <option value="black">Black bars</option>
           </select>
         </div>
       </div>

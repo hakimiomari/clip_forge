@@ -95,6 +95,7 @@ export class ClipsService {
       captionsEnabled: dto.captionsEnabled,
       captionStyle: dto.captionStyle,
       zoomEnabled: dto.zoomEnabled,
+      backgroundMode: dto.backgroundMode ?? "blur",
     });
 
     const clip = await this.prisma.clip.create({
@@ -256,6 +257,12 @@ export class ClipsService {
     }
 
     const format = (dto.format ?? plan.format) as VideoFormat;
+    const existingBackgroundMode =
+      plan.background?.type === "crop_fill"
+        ? "fill"
+        : plan.background?.type === "blurred_original"
+          ? "blur"
+          : "black";
     const newPlan = buildEditingPlan({
       start,
       end,
@@ -264,6 +271,7 @@ export class ClipsService {
       captionStyle: (dto.captionStyle ?? plan.captions.style) as CaptionStyleName,
       zoomEnabled:
         dto.zoomEnabled ?? segment.effects.some((e) => e.type === "zoom_in"),
+      backgroundMode: dto.backgroundMode ?? existingBackgroundMode,
     });
 
     const trimChanged =
@@ -410,8 +418,15 @@ function buildEditingPlan(opts: {
   captionsEnabled: boolean;
   captionStyle: CaptionStyleName | string;
   zoomEnabled: boolean;
+  backgroundMode?: "blur" | "fill" | "black" | string;
 }): EditingPlan {
   const duration = opts.end - opts.start;
+  const background: EditingPlan["background"] =
+    opts.backgroundMode === "fill"
+      ? { type: "crop_fill" }
+      : opts.backgroundMode === "black"
+        ? undefined
+        : { type: "blurred_original", blurIntensity: 55 };
   return {
     version: EDITING_PLAN_VERSION,
     duration,
@@ -444,6 +459,6 @@ function buildEditingPlan(opts: {
       fadeOut: true,
       normalize: true,
     },
-    background: { type: "blurred_original", blurIntensity: 55 },
+    background,
   };
 }

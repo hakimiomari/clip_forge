@@ -27,6 +27,8 @@ export interface RenderSpec {
   width: number;
   height: number;
   blurBackground: boolean;
+  /** Scale to cover + center-crop — fills the frame, no bars at all */
+  fillFrame?: boolean;
   zoom: boolean;
   assPath?: string; // burned captions when present
   hasAudio: boolean;
@@ -78,7 +80,12 @@ export function buildFilterGraph(spec: RenderSpec): string {
   }
 
   // ── Layout ─────────────────────────────────────────────
-  if (spec.blurBackground) {
+  if (spec.fillFrame) {
+    // Cover the whole frame: crop the source's excess width/height
+    chains.push(
+      `[${vIn}]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h}[vbase]`,
+    );
+  } else if (spec.blurBackground) {
     // Blur at quarter resolution and upscale — visually identical for a
     // defocused background, ~16x cheaper than blurring at full size
     const qw = Math.round(w / 4 / 2) * 2;

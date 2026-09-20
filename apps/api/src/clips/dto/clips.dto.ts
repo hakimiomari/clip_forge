@@ -15,12 +15,26 @@ import {
   GenerateFormat,
 } from "../../highlights/dto/highlights.dto";
 
+export enum BackgroundMode {
+  /** Fit the video, blurred bars fill the rest (default) */
+  blur = "blur",
+  /** Scale to cover and center-crop — fills the whole frame, no bars */
+  fill = "fill",
+  /** Fit the video on plain black bars */
+  black = "black",
+}
+
 export class CreateClipDto {
   @ApiPropertyOptional({ example: "The biggest mistake" })
   @IsOptional()
   @IsString()
   @MaxLength(120)
   name?: string;
+
+  @ApiPropertyOptional({ enum: BackgroundMode, default: BackgroundMode.blur })
+  @IsOptional()
+  @IsEnum(BackgroundMode)
+  backgroundMode: BackgroundMode = BackgroundMode.blur;
 
   @ApiProperty({ enum: GenerateFormat, default: GenerateFormat.vertical })
   @IsEnum(GenerateFormat)
@@ -62,6 +76,11 @@ export class UpdateClipDto {
   @IsString()
   @MaxLength(120)
   name?: string;
+
+  @ApiPropertyOptional({ enum: BackgroundMode })
+  @IsOptional()
+  @IsEnum(BackgroundMode)
+  backgroundMode?: BackgroundMode;
 
   @ApiPropertyOptional({ enum: GenerateFormat })
   @IsOptional()

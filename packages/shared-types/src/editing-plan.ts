@@ -24,7 +24,12 @@ export interface EditingPlan {
   transitions: TransitionConfig[];
   audio: PlanAudio;
   background?: {
-    type: "blurred_original" | "solid" | "gradient";
+    /**
+     * blurred_original: fit video, blurred fill bars ·
+     * crop_fill: scale to cover and center-crop (no bars) ·
+     * solid/gradient: colored bars
+     */
+    type: "blurred_original" | "crop_fill" | "solid" | "gradient";
     blurIntensity?: number;
     color?: string;
   };

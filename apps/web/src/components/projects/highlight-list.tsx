@@ -22,6 +22,9 @@ export function HighlightList({
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [captionsEnabled, setCaptionsEnabled] = useState(true);
+  const [backgroundMode, setBackgroundMode] = useState("blur");
+  const [zoomEnabled, setZoomEnabled] = useState(true);
 
   const createClip = useMutation({
     mutationFn: (highlightId: string) =>
@@ -29,9 +32,10 @@ export function HighlightList({
         method: "POST",
         body: {
           format: "vertical",
-          captionsEnabled: true,
+          captionsEnabled,
           captionStyle,
-          zoomEnabled: true,
+          zoomEnabled,
+          backgroundMode,
         },
       }),
     onMutate: (id) => {
@@ -50,6 +54,39 @@ export function HighlightList({
 
   return (
     <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg border border-border bg-surface px-4 py-2.5 text-sm">
+        <span className="text-xs font-medium text-muted">Clip options:</span>
+        <label className="flex cursor-pointer items-center gap-2">
+          <input
+            type="checkbox"
+            checked={captionsEnabled}
+            onChange={(e) => setCaptionsEnabled(e.target.checked)}
+            className="h-4 w-4 accent-[#6d5cff]"
+          />
+          Captions
+        </label>
+        <label className="flex cursor-pointer items-center gap-2">
+          <input
+            type="checkbox"
+            checked={zoomEnabled}
+            onChange={(e) => setZoomEnabled(e.target.checked)}
+            className="h-4 w-4 accent-[#6d5cff]"
+          />
+          Slow zoom
+        </label>
+        <label className="flex items-center gap-2">
+          <span className="text-muted">Background:</span>
+          <select
+            value={backgroundMode}
+            onChange={(e) => setBackgroundMode(e.target.value)}
+            className="h-8 rounded-lg border border-border bg-surface-raised px-2 text-sm"
+          >
+            <option value="blur">Blurred bars</option>
+            <option value="fill">Fill screen (crop sides)</option>
+            <option value="black">Black bars</option>
+          </select>
+        </label>
+      </div>
       <FieldError message={error ?? undefined} />
       {highlights.map((h, i) => (
         <Card key={h.id} className="p-4">

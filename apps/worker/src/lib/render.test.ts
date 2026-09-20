@@ -55,6 +55,16 @@ void test("pad mode used when blur background disabled", () => {
   assert.doesNotMatch(graph, /vzoom/);
 });
 
+void test("fill mode covers the frame with a center crop and no bars", () => {
+  const graph = buildFilterGraph({ ...baseSpec, fillFrame: true, zoom: false });
+  assert.match(
+    graph,
+    /scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920\[vbase\]/,
+  );
+  assert.doesNotMatch(graph, /boxblur/);
+  assert.doesNotMatch(graph, /pad=/);
+});
+
 void test("render args seek, bound input read and map streams", () => {
   const args = buildRenderArgs(baseSpec);
   const joined = args.join(" ");

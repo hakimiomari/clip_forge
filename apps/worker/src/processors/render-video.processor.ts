@@ -135,6 +135,7 @@ export async function processRenderVideo(job: Job<RenderVideoJob>): Promise<void
       width: width || 1080,
       height: height || 1920,
       blurBackground: plan.background?.type === "blurred_original",
+      fillFrame: plan.background?.type === "crop_fill",
       zoom: segment.effects.some((e) => e.type === "zoom_in"),
       assPath,
       hasAudio: Boolean(source.audioKey) || true, // probe decides below
