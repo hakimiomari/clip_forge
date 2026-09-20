@@ -275,6 +275,9 @@ model Clip {
   projectId   String
   highlightId String?
   name        String?
+  // Ready-to-paste caption for the platform the short is posted to,
+  // built from the clip's own transcript + source (see clip-metadata)
+  description String?
   status      ClipStatus @default(DRAFT)
   format      String? // vertical | square | landscape
   resolution  String? // e.g. 1080x1920

@@ -65,6 +65,9 @@ function makeService(clipOverrides?: Record<string, unknown>) {
     },
     export: { findFirst: jest.fn().mockResolvedValue(null) },
     videoSource: { findUnique: jest.fn().mockResolvedValue(null) },
+    project: {
+      findUnique: jest.fn().mockResolvedValue({ sourceUrl: "https://youtu.be/abc" }),
+    },
     transcript: { findUnique: jest.fn().mockResolvedValue(null) },
     caption: {
       deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
@@ -301,6 +304,31 @@ describe("ClipsService.createFromRange", () => {
         zoomEnabled: true,
       } as unknown as CreateClipFromRangeDto),
     ).rejects.toThrow(/sourceStart and sourceEnd, or a segments array/);
+  });
+
+  it("writes a postable title and description from real clip data", async () => {
+    const { service, prisma } = makeRangeService();
+    (prisma.videoSource.findUnique as jest.Mock).mockResolvedValue({
+      projectId: "p1",
+      sourceType: "YOUTUBE",
+      storageKey: null,
+      externalId: "abc",
+      duration: 100,
+      title: "Afghanistan vs India | T20I Series",
+    });
+    (prisma.transcript.findUnique as jest.Mock).mockResolvedValue({
+      id: "t1",
+      segments: [{ startTime: 31, endTime: 34, text: "what a shot", speaker: null }],
+    });
+
+    await service.createFromRange("p1", OWNER, range(30, 40));
+    const created = (prisma.clip.create as jest.Mock).mock.calls[0][0].data;
+    // Title comes from what is actually said, not from a model
+    expect(created.name).toBe("what a shot");
+    expect(created.description).toContain('"what a shot"');
+    expect(created.description).toContain("From: Afghanistan vs India | T20I Series");
+    expect(created.description).toContain("Moment: 0:30–0:40");
+    expect(created.description).toContain("https://youtu.be/abc");
   });
 
   it("keeps the exact selected window on the editing plan", async () => {

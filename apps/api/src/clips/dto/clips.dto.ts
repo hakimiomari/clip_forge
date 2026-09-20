@@ -320,6 +320,12 @@ export class UpdateClipDto {
   @MaxLength(120)
   name?: string;
 
+  @ApiPropertyOptional({ description: "Caption to post with the clip" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(5000)
+  description?: string;
+
   @ApiPropertyOptional({ enum: BackgroundMode })
   @IsOptional()
   @IsEnum(BackgroundMode)

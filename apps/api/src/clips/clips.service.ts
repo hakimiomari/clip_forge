@@ -5,6 +5,8 @@ import {
 } from "@nestjs/common";
 import type { Prisma } from "@clipforge/database";
 import {
+  buildClipDescription,
+  buildClipTitle,
   buildEditingPlan,
   CLIP_RESOLUTIONS,
   EDITING_PLAN_VERSION,
@@ -204,11 +206,31 @@ export class ClipsService {
       cartoon: normalizeCartoon(dto.cartoon),
     });
 
+    // Spoken lines inside the window, for a caption built from facts
+    const spokenLines = await this.spokenLinesForParts(projectId, parts);
+    const source = await this.prisma.videoSource.findUnique({
+      where: { projectId },
+      select: { title: true },
+    });
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { sourceUrl: true },
+    });
+    const metadata = {
+      sourceTitle: source?.title,
+      sourceUrl: project?.sourceUrl,
+      parts,
+      spokenLines,
+      highlightTitle: fallbackName,
+      clipName: dto.name?.trim() || null,
+    };
+
     const clip = await this.prisma.clip.create({
       data: {
         projectId,
         highlightId,
-        name: dto.name?.trim() || fallbackName || "Clip",
+        name: buildClipTitle(metadata),
+        description: buildClipDescription(metadata),
         status: "DRAFT",
         format: dto.format,
         resolution: plan.resolution,
@@ -220,6 +242,28 @@ export class ClipsService {
     });
     await this.syncCaptionsFromTranscript(clip.id, projectId, parts);
     return this.render(clip.id, userId);
+  }
+
+  /** The words actually spoken inside the clip's windows, in order. */
+  private async spokenLinesForParts(
+    projectId: string,
+    parts: ClipPart[],
+  ): Promise<string[]> {
+    const transcript = await this.prisma.transcript.findUnique({
+      where: { projectId },
+      include: {
+        segments: {
+          where: {
+            OR: parts.map((p) => ({
+              startTime: { lt: p.end },
+              endTime: { gt: p.start },
+            })),
+          },
+          orderBy: { index: "asc" },
+        },
+      },
+    });
+    return (transcript?.segments ?? []).map((s) => s.text);
   }
 
   /**
@@ -344,6 +388,7 @@ export class ClipsService {
       projectId: clip.projectId,
       highlightId: clip.highlightId,
       name: clip.name,
+      description: clip.description,
       status: clip.status,
       format: clip.format,
       resolution: clip.resolution,
@@ -562,6 +607,10 @@ export class ClipsService {
       where: { id: clipId },
       data: {
         name: dto.name?.trim() || clip.name,
+        // The caption is the user's to edit; only replace it when they send one
+        ...(dto.description !== undefined
+          ? { description: dto.description.trim() || null }
+          : {}),
         status: "EDITING",
         format,
         resolution: newPlan.resolution,
