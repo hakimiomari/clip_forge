@@ -39,6 +39,11 @@ export interface ClipDetailResponse {
     rangeEffects?: Array<Record<string, unknown>>;
     background?: { type: string } | null;
     captions?: { enabled: boolean; style: string };
+    backgroundRemoval?: {
+      enabled: boolean;
+      replace?: string;
+      color?: string;
+    };
     cta?: {
       enabled: boolean;
       likeText?: string;

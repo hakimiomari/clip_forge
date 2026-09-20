@@ -37,6 +37,8 @@ export interface EditingPlan {
   rangeEffects?: RangeEffect[];
   /** Like/Follow call-to-action banner burned into the render */
   cta?: PlanCta;
+  /** AI subject cut-out (per-frame segmentation) */
+  backgroundRemoval?: PlanBackgroundRemoval;
 }
 
 // ── Advanced range effects ───────────────────────────────
@@ -212,6 +214,14 @@ export interface PlanCaptions {
 }
 
 export type VoiceEffect = "none" | "telephone" | "echo" | "robot";
+
+export interface PlanBackgroundRemoval {
+  enabled: boolean;
+  /** What appears behind the cut-out subject */
+  replace: "blur" | "color";
+  /** Hex without # when replace = "color" */
+  color?: string;
+}
 
 export type CtaTiming = "start" | "middle" | "end" | "always" | "custom";
 

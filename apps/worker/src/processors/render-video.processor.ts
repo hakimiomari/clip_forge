@@ -14,6 +14,7 @@ import { downloadYouTubeSection } from "../lib/youtube";
 import { buildTimeMap } from "../lib/time-map";
 import { createGlowSprite } from "../lib/effects";
 import { buildCtaAss } from "../lib/cta";
+import { generateMaskVideo } from "../lib/bg-removal";
 
 /**
  * render-video: Rendering Agent + Quality Control Agent.
@@ -47,9 +48,17 @@ export async function processRenderVideo(job: Job<RenderVideoJob>): Promise<void
 
   const projectId = clip.projectId;
   const duration = segment.sourceEnd - segment.sourceStart;
+  // AI background removal is incompatible with speed effects (the mask
+  // stream can't follow a warped timeline) — strip them defensively.
+  const bgRemoval = plan.backgroundRemoval?.enabled ? plan.backgroundRemoval : null;
+  const effectiveEffects = bgRemoval
+    ? (plan.rangeEffects ?? []).filter(
+        (e) => !["slow_motion", "speed_up", "freeze_frame", "speed_ramp"].includes(e.type),
+      )
+    : plan.rangeEffects;
   // Speed effects (slow motion, freeze…) change the output duration and
   // shift everything downstream of them — captions and QC use this map.
-  const timeMap = buildTimeMap(plan.rangeEffects, duration);
+  const timeMap = buildTimeMap(effectiveEffects, duration);
   const outputDuration = timeMap.outputDuration;
 
   const emit = (progress: number, step: string) =>
@@ -158,10 +167,33 @@ export async function processRenderVideo(job: Job<RenderVideoJob>): Promise<void
       ctaAssPath,
       hasAudio: Boolean(source.audioKey) || true, // probe decides below
       watermarkText: user.plan === "FREE" ? "Powered by ClipForge" : undefined,
-      rangeEffects: plan.rangeEffects,
+      rangeEffects: effectiveEffects,
       glowSpritePath,
       audio: plan.audio,
     };
+
+    // AI subject cut-out: generate the per-frame mask before rendering
+    if (bgRemoval) {
+      await updateRenderJob({ progress: 8, step: "Removing background (AI)" });
+      await emit(8, "Removing background (AI)");
+      const maskPath = work.file("mask.gray");
+      await generateMaskVideo({
+        inputPath,
+        start: segment.sourceStart - inputOffset,
+        duration,
+        outPath: maskPath,
+        onProgress: (f) => {
+          const pct = 8 + Math.round(f * 30);
+          void updateRenderJob({ progress: pct, step: "Removing background (AI)" }).catch(() => undefined);
+          void emit(pct, "Removing background (AI)");
+        },
+      });
+      spec.backgroundRemoval = {
+        maskPath,
+        replace: bgRemoval.replace,
+        color: bgRemoval.color,
+      };
+    }
 
     // Respect the actual stream layout
     const probe = await probeVideo(inputPath);
@@ -169,8 +201,9 @@ export async function processRenderVideo(job: Job<RenderVideoJob>): Promise<void
 
     await emit(8, "Rendering video");
     let lastPersist = 0;
+    const progressBase = bgRemoval ? 38 : 8;
     const onProgress = (fraction: number) => {
-      const pct = Math.min(95, 8 + Math.round(fraction * 82));
+      const pct = Math.min(95, progressBase + Math.round(fraction * (95 - progressBase)));
       const now = Date.now();
       if (now - lastPersist > 1500) {
         lastPersist = now;

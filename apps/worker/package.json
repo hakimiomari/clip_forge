@@ -15,6 +15,7 @@
     "@clipforge/shared-types": "workspace:*",
     "bullmq": "^5.30.0",
     "ioredis": "^5.4.0",
+    "onnxruntime-node": "^1.30.0",
     "zod": "^3.24.0"
   },
   "devDependencies": {

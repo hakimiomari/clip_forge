@@ -278,6 +278,32 @@ export class ClipsService {
     const trimChanged =
       start !== segment.sourceStart || end !== segment.sourceEnd;
 
+    // AI background removal (edit-time): preserve + apply overrides
+    const mergedBgRemoval = {
+      enabled: false,
+      replace: "blur" as const,
+      ...plan.backgroundRemoval,
+      ...(dto.backgroundRemoval
+        ? Object.fromEntries(
+            Object.entries(dto.backgroundRemoval).filter(([, v]) => v !== undefined),
+          )
+        : {}),
+    };
+    if (mergedBgRemoval.color) {
+      mergedBgRemoval.color = mergedBgRemoval.color.replace(/[^0-9a-fA-F]/g, "").slice(0, 6);
+    }
+    if (
+      mergedBgRemoval.enabled &&
+      (newPlan.rangeEffects ?? plan.rangeEffects ?? []).some((e) =>
+        ["slow_motion", "speed_up", "freeze_frame", "speed_ramp"].includes(e.type),
+      )
+    ) {
+      throw new BadRequestException(
+        "AI background removal cannot be combined with speed effects — remove them first",
+      );
+    }
+    newPlan.backgroundRemoval = mergedBgRemoval;
+
     // Preserve existing CTA settings, then layer the new ones on top
     newPlan.cta = {
       ...(newPlan.cta as NonNullable<EditingPlan["cta"]>),
@@ -381,6 +407,16 @@ export class ClipsService {
     }
     const clipDuration = segment.sourceEnd - segment.sourceStart;
     const validated = validateRangeEffects(effects, clipDuration);
+    if (
+      plan.backgroundRemoval?.enabled &&
+      validated.some((e) =>
+        ["slow_motion", "speed_up", "freeze_frame", "speed_ramp"].includes(e.type),
+      )
+    ) {
+      throw new BadRequestException(
+        "Speed effects cannot be combined with AI background removal — disable it first",
+      );
+    }
     const newPlan: EditingPlan = { ...plan, rangeEffects: validated };
     await this.prisma.clip.update({
       where: { id: clipId },

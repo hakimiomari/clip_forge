@@ -17,6 +17,7 @@ publicHoistPattern:
 strictPeerDependencies: false
 # Postinstall scripts: allow the toolchain binaries, decline telemetry
 allowBuilds:
+  onnxruntime-node: true
   '@prisma/client': true
   '@prisma/engines': true
   '@scarf/scarf': false

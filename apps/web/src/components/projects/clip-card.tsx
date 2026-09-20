@@ -256,6 +256,10 @@ function ClipEditor({
   const [voiceEnhance, setVoiceEnhance] = useState(planAudio?.voiceEnhance ?? false);
   const [voiceEffect, setVoiceEffect] = useState(planAudio?.voiceEffect ?? "none");
   const [normalize, setNormalize] = useState(planAudio?.normalize ?? true);
+  const planBg = clip.editingPlan?.backgroundRemoval;
+  const [bgRemovalEnabled, setBgRemovalEnabled] = useState(planBg?.enabled ?? false);
+  const [bgReplace, setBgReplace] = useState(planBg?.replace ?? "blur");
+  const [bgColor, setBgColor] = useState(planBg?.color ?? "0b0d12");
   const planCta = clip.editingPlan?.cta;
   const [ctaEnabled, setCtaEnabled] = useState(planCta?.enabled ?? true);
   const [ctaLike, setCtaLike] = useState(planCta?.likeText ?? "LIKE");
@@ -288,6 +292,11 @@ function ClipEditor({
             voiceEnhance,
             voiceEffect,
             normalize,
+          },
+          backgroundRemoval: {
+            enabled: bgRemovalEnabled,
+            replace: bgReplace,
+            ...(bgReplace === "color" ? { color: bgColor } : {}),
           },
           cta: {
             enabled: ctaEnabled,
@@ -484,6 +493,51 @@ function ClipEditor({
             <option value="robot">Robot</option>
           </select>
         </div>
+      </div>
+
+      <div className="space-y-3 rounded-lg border border-border bg-surface p-3">
+        <label className="flex cursor-pointer items-center gap-2 text-sm font-semibold">
+          <input
+            type="checkbox"
+            checked={bgRemovalEnabled}
+            onChange={(e) => setBgRemovalEnabled(e.target.checked)}
+            className="h-4 w-4 accent-[#6d5cff]"
+          />
+          ✂️ Remove background (AI)
+        </label>
+        {bgRemovalEnabled && (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Replace with</Label>
+                <select
+                  value={bgReplace}
+                  onChange={(e) => setBgReplace(e.target.value)}
+                  className="h-9 w-full rounded-lg border border-border bg-surface-raised px-2 text-sm"
+                >
+                  <option value="blur">Blurred original (portrait look)</option>
+                  <option value="color">Solid color</option>
+                </select>
+              </div>
+              {bgReplace === "color" && (
+                <div>
+                  <Label>Color (hex)</Label>
+                  <Input
+                    value={bgColor}
+                    onChange={(e) => setBgColor(e.target.value.replace(/[^0-9a-fA-F]/g, "").slice(0, 6))}
+                    placeholder="0b0d12"
+                    className="h-9"
+                  />
+                </div>
+              )}
+            </div>
+            <p className="text-xs text-warning">
+              Runs a local AI segmentation model on every frame — adds a few
+              minutes to the render. Works best with a single clear subject
+              (talking-head style); not compatible with speed effects.
+            </p>
+          </>
+        )}
       </div>
 
       <div className="space-y-3 rounded-lg border border-border bg-surface p-3">

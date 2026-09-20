@@ -151,6 +151,25 @@ export class CtaSettingsDto {
   position?: "top" | "bottom";
 }
 
+/** AI subject cut-out settings (edit-time feature). */
+export class BackgroundRemovalDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  enabled?: boolean;
+
+  @ApiPropertyOptional({ enum: ["blur", "color"] })
+  @IsOptional()
+  @IsEnum({ blur: "blur", color: "color" })
+  replace?: "blur" | "color";
+
+  @ApiPropertyOptional({ description: "6-digit hex without #", example: "0b0d12" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(6)
+  color?: string;
+}
+
 export class CreateClipDto {
   @ApiPropertyOptional({ example: "The biggest mistake" })
   @IsOptional()
@@ -259,4 +278,10 @@ export class UpdateClipDto {
   @ValidateNested()
   @Type(() => CtaSettingsDto)
   cta?: CtaSettingsDto;
+
+  @ApiPropertyOptional({ type: BackgroundRemovalDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => BackgroundRemovalDto)
+  backgroundRemoval?: BackgroundRemovalDto;
 }
