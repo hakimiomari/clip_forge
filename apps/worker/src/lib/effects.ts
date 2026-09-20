@@ -48,12 +48,21 @@ export function buildSpeedChain(
         );
       }
     } else {
+      // Slowed ramp segments can synthesize frames: blend (cheap motion
+      // blur) or mci (real optical flow — slow but ultra-smooth)
+      const synth =
+        s.interpolate === "mci"
+          ? ",minterpolate=fps=30:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1"
+          : s.interpolate === "blend"
+            ? ",minterpolate=fps=30:mi_mode=blend"
+            : "";
       chains.push(
-        `[${inLabelV}]trim=start=${s.srcStart.toFixed(3)}:end=${s.srcEnd.toFixed(3)},setpts=(PTS-STARTPTS)/${s.speed}[${v}]`,
+        `[${inLabelV}]trim=start=${s.srcStart.toFixed(3)}:end=${s.srcEnd.toFixed(3)},setpts=(PTS-STARTPTS)/${s.speed}${synth}[${v}]`,
       );
       if (hasAudio) {
+        const mute = s.mute ? ",volume=0" : "";
         chains.push(
-          `[aun]atrim=start=${s.srcStart.toFixed(3)}:end=${s.srcEnd.toFixed(3)},asetpts=PTS-STARTPTS,${atempoChain(s.speed)}[sa${i}]`,
+          `[aun]atrim=start=${s.srcStart.toFixed(3)}:end=${s.srcEnd.toFixed(3)},asetpts=PTS-STARTPTS,${atempoChain(s.speed)}${mute}[sa${i}]`,
         );
       }
     }

@@ -55,6 +55,63 @@ describe("validateRangeEffects", () => {
     ).toThrow(/must not overlap/);
   });
 
+  it("accepts a valid speed ramp with defaults", () => {
+    const [ramp] = validateRangeEffects(
+      [
+        {
+          type: "speed_ramp",
+          keyframes: [
+            { t: 5, speed: 1 },
+            { t: 8, speed: 0.1 },
+            { t: 12, speed: 2 },
+          ],
+        },
+      ],
+      DUR,
+    );
+    expect(ramp).toMatchObject({
+      type: "speed_ramp",
+      smoothness: 1,
+      interpolation: "dup",
+      muteBelowSpeed: 0.25,
+    });
+  });
+
+  it("rejects a speed ramp combined with basic speed effects", () => {
+    expect(() =>
+      validateRangeEffects(
+        [
+          {
+            type: "speed_ramp",
+            keyframes: [
+              { t: 2, speed: 1 },
+              { t: 6, speed: 0.2 },
+            ],
+          },
+          { type: "slow_motion", start: 10, end: 14, factor: 0.5 },
+        ],
+        DUR,
+      ),
+    ).toThrow(/replaces slow motion/);
+  });
+
+  it("rejects out-of-range ramp speeds", () => {
+    expect(() =>
+      validateRangeEffects(
+        [
+          {
+            type: "speed_ramp",
+            keyframes: [
+              { t: 2, speed: 0.01 },
+              { t: 6, speed: 1 },
+            ],
+          },
+        ],
+        DUR,
+      ),
+    ).toThrow(/0\.05–4/);
+  });
+
   it("rejects trails with fewer than 2 keyframes", () => {
     expect(() =>
       validateRangeEffects(

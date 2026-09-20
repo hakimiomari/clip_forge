@@ -1,4 +1,6 @@
 import type { RangeEffect } from "@clipforge/shared-types";
+// Value import is safe: speed-ramp only imports types from this module
+import { sampleSpeedRamp } from "./speed-ramp";
 
 /**
  * Speed effects (slow motion, speed-up, freeze) stretch or shrink parts
@@ -15,6 +17,10 @@ export interface SpeedSegment {
   speed: number;
   /** Hold length for freeze segments */
   holdSeconds?: number;
+  /** Frame synthesis for slowed sections (speed ramps) */
+  interpolate?: "blend" | "mci";
+  /** Silence this segment's audio (deep-slow sections) */
+  mute?: boolean;
 }
 
 export interface TimeMap {
@@ -45,6 +51,13 @@ export function buildTimeMap(
   effects: RangeEffect[] | undefined,
   clipDuration: number,
 ): TimeMap {
+  // A speed ramp defines the whole velocity curve — it supersedes the
+  // simple range speed effects (validation enforces exclusivity).
+  const ramp = (effects ?? []).find((e) => e.type === "speed_ramp");
+  if (ramp && ramp.type === "speed_ramp") {
+    return makeTimeMap(sampleSpeedRamp(ramp, clipDuration), clipDuration);
+  }
+
   const speedEffects = (effects ?? [])
     .filter(isSpeedEffect)
     .map((e) => ({
@@ -82,6 +95,14 @@ export function buildTimeMap(
     segments.push({ srcStart: cursor, srcEnd: clipDuration, speed: 1 });
   }
 
+  return makeTimeMap(segments, clipDuration);
+}
+
+/** Builds the map (offsets, output duration, remap fn) from segments. */
+export function makeTimeMap(
+  segments: SpeedSegment[],
+  clipDuration: number,
+): TimeMap {
   // Precompute output offsets per segment
   const offsets: number[] = [];
   let out = 0;

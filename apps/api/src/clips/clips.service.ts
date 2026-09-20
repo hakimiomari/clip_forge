@@ -290,6 +290,12 @@ export class ClipsService {
             .filter((k) => k.t >= 0 && k.t <= newDuration);
           return keyframes.length >= 2 ? { ...e, keyframes } : null;
         }
+        if (e.type === "speed_ramp") {
+          const keyframes = e.keyframes
+            .map((k) => ({ ...k, t: Math.max(0, Math.min(newDuration, k.t + shift)) }))
+            .filter((k, i, arr) => i === 0 || k.t > arr[i - 1]!.t + 0.01);
+          return keyframes.length >= 2 ? { ...e, keyframes } : null;
+        }
         const start2 = (e as { start: number }).start + shift;
         const end2 = "end" in e ? (e as { end: number }).end + shift : start2;
         if (end2 < 0 || start2 > newDuration) return null;

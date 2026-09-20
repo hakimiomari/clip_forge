@@ -106,6 +106,46 @@ export function validateRangeEffects(
         out.push({ id, type: "flash", start });
         break;
       }
+      case "speed_ramp": {
+        if (out.some((x) => x.type === "speed_ramp")) {
+          fail("only one speed ramp per clip");
+        }
+        if (!Array.isArray(e.keyframes)) fail("keyframes must be an array");
+        const kfRaw = e.keyframes as unknown[];
+        if (kfRaw.length < 2 || kfRaw.length > 8) {
+          fail("speed ramp needs 2–8 keyframes");
+        }
+        const keyframes = kfRaw.map((k, ki) => {
+          const kf = k as Record<string, unknown>;
+          const t = inClip(num(kf.t, `keyframe ${ki + 1} time`), "keyframe time");
+          const speed = num(kf.speed, `keyframe ${ki + 1} speed`);
+          if (speed < 0.05 || speed > 4) {
+            fail(`keyframe ${ki + 1} speed must be 0.05–4`);
+          }
+          return { t, speed: Math.round(speed * 100) / 100 };
+        });
+        keyframes.sort((a, b) => a.t - b.t);
+        const smoothness = e.smoothness === undefined ? 1 : num(e.smoothness, "smoothness");
+        if (smoothness < 0 || smoothness > 1) fail("smoothness must be 0–1");
+        const interpolation = String(e.interpolation ?? "dup");
+        if (!["dup", "blend", "optical_flow"].includes(interpolation)) {
+          fail("interpolation must be dup, blend or optical_flow");
+        }
+        const muteBelowSpeed =
+          e.muteBelowSpeed === undefined ? 0.25 : num(e.muteBelowSpeed, "muteBelowSpeed");
+        if (muteBelowSpeed < 0 || muteBelowSpeed > 1) {
+          fail("muteBelowSpeed must be 0–1");
+        }
+        out.push({
+          id,
+          type: "speed_ramp",
+          keyframes,
+          smoothness,
+          interpolation: interpolation as "dup" | "blend" | "optical_flow",
+          muteBelowSpeed,
+        });
+        break;
+      }
       case "glow_trail": {
         if (++trailCount > 1) fail("only one glow trail per clip");
         if (!Array.isArray(e.keyframes)) fail("keyframes must be an array");
@@ -145,6 +185,16 @@ export function validateRangeEffects(
       default:
         fail(`unknown effect type "${String(e.type)}"`);
     }
+  }
+
+  // A speed ramp owns the whole velocity curve — no other speed effects
+  if (
+    out.some((e) => e.type === "speed_ramp") &&
+    out.some((e) => ["slow_motion", "speed_up", "freeze_frame"].includes(e.type))
+  ) {
+    throw new BadRequestException(
+      "A speed ramp replaces slow motion / speed-up / freeze effects — remove them or the ramp",
+    );
   }
 
   // Speed-changing effects must not overlap one another

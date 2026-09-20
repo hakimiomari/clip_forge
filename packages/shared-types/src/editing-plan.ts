@@ -46,10 +46,69 @@ export type RangeEffect =
   | SlowMotionEffect
   | SpeedUpEffect
   | FreezeFrameEffect
+  | SpeedRampEffect
   | ColorGradeEffect
   | PunchInEffect
   | FlashEffect
   | GlowTrailEffect;
+
+// ── Speed ramping (variable velocity) ────────────────────
+
+export interface SpeedKeyframe {
+  /** Seconds relative to clip start */
+  t: number;
+  /** Playback speed at this point, 0.05–4 */
+  speed: number;
+}
+
+export type RampInterpolation = "dup" | "blend" | "optical_flow";
+
+/**
+ * Keyframed variable velocity across the whole clip. Speed between
+ * keyframes ramps with smooth ease-in/out; before the first and after
+ * the last keyframe the clip plays at that keyframe's speed. Mutually
+ * exclusive with slow_motion / speed_up / freeze_frame.
+ */
+export interface SpeedRampEffect {
+  id: string;
+  type: "speed_ramp";
+  /** 2–8 keyframes, times ascending. Repeated speeds form plateaus. */
+  keyframes: SpeedKeyframe[];
+  /**
+   * Ramp easing between keyframes, 0–1: 0 = linear velocity change,
+   * 1 = fully eased (smooth ease-in/ease-out).
+   */
+  smoothness: number;
+  /** Frame synthesis for slowed sections (optical_flow is much slower) */
+  interpolation: RampInterpolation;
+  /** Mute original audio when speed drops below this (0 disables) */
+  muteBelowSpeed: number;
+}
+
+/** Preset ramps from the product spec, anchored at an impact time. */
+export function speedRampPreset(
+  name: "hero_moment" | "bullet_time",
+  anchorSeconds: number,
+  clipDuration: number,
+): SpeedKeyframe[] {
+  const clamp = (t: number) => Math.max(0, Math.min(clipDuration, Math.round(t * 100) / 100));
+  if (name === "bullet_time") {
+    return [
+      { t: clamp(anchorSeconds - 2.5), speed: 1 },
+      { t: clamp(anchorSeconds - 0.8), speed: 4 },
+      { t: clamp(anchorSeconds - 0.1), speed: 0.05 },
+      { t: clamp(anchorSeconds + 1.2), speed: 0.05 },
+      { t: clamp(anchorSeconds + 2.2), speed: 1 },
+    ];
+  }
+  // hero_moment: normal → deep slow at impact → snap back
+  return [
+    { t: clamp(anchorSeconds - 1.5), speed: 1 },
+    { t: clamp(anchorSeconds - 0.15), speed: 0.1 },
+    { t: clamp(anchorSeconds + 0.9), speed: 0.1 },
+    { t: clamp(anchorSeconds + 1.6), speed: 1 },
+  ];
+}
 
 export interface SlowMotionEffect {
   id: string;

@@ -3,10 +3,16 @@
 import { useMemo, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Plus, Sparkles, Trash2, Wand2, MousePointerClick } from "lucide-react";
+import { speedRampPreset } from "@clipforge/shared-types";
 import { api, ApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input, Label, FieldError } from "@/components/ui/input";
+import {
+  VelocityCurveEditor,
+  rampOutputDuration,
+  type SpeedKf,
+} from "./velocity-curve-editor";
 
 /** Mirrors shared-types RangeEffect (kept loose client-side). */
 export interface EffectItem {
@@ -15,6 +21,7 @@ export interface EffectItem {
     | "slow_motion"
     | "speed_up"
     | "freeze_frame"
+    | "speed_ramp"
     | "color_grade"
     | "punch_in"
     | "flash"
@@ -24,12 +31,16 @@ export interface EffectItem {
   factor?: number;
   holdSeconds?: number;
   preset?: string;
-  keyframes?: Array<{ t: number; x: number; y: number }>;
+  keyframes?: Array<{ t: number; x?: number; y?: number; speed?: number }>;
   color?: string;
   size?: number;
+  smoothness?: number;
+  interpolation?: string;
+  muteBelowSpeed?: number;
 }
 
 const TYPE_LABELS: Record<EffectItem["type"], string> = {
+  speed_ramp: "Speed ramp (velocity curve)",
   slow_motion: "Slow motion",
   speed_up: "Speed up",
   freeze_frame: "Freeze frame",
@@ -50,6 +61,8 @@ const COLOR_PRESETS = [
 function summarize(e: EffectItem): string {
   const range = e.end !== undefined ? `${e.start}s–${e.end}s` : `${e.start}s`;
   switch (e.type) {
+    case "speed_ramp":
+      return `${e.keyframes?.length ?? 0} velocity keyframes · ${e.interpolation ?? "dup"}`;
     case "slow_motion":
       return `${range} at ${e.factor}× speed`;
     case "speed_up":
@@ -93,7 +106,26 @@ export function EffectsEditor({
   const [keyframes, setKeyframes] = useState<Array<{ t: number; x: number; y: number }>>([]);
   const videoRef = useRef<HTMLVideoElement>(null);
 
+  // speed-ramp draft state
+  const [rampKfs, setRampKfs] = useState<SpeedKf[]>(() =>
+    speedRampPreset("hero_moment", clipDuration / 2, clipDuration),
+  );
+  const [rampSmoothness, setRampSmoothness] = useState(1);
+  const [rampInterp, setRampInterp] = useState("blend");
+  const [rampMuteBelow, setRampMuteBelow] = useState(0.25);
+  const [rampAnchor, setRampAnchor] = useState(
+    String(Math.round((clipDuration / 2) * 10) / 10),
+  );
+
   const outputDuration = useMemo(() => {
+    const ramp = effects.find((e) => e.type === "speed_ramp");
+    if (ramp?.keyframes?.length) {
+      return rampOutputDuration(
+        ramp.keyframes.map((k) => ({ t: k.t, speed: k.speed ?? 1 })),
+        ramp.smoothness ?? 1,
+        clipDuration,
+      );
+    }
     let delta = 0;
     for (const e of effects) {
       if (e.type === "slow_motion" || e.type === "speed_up") {
@@ -153,10 +185,37 @@ export function EffectsEditor({
         }
         item = { id, type, keyframes: [...keyframes] };
         break;
+      case "speed_ramp":
+        if (rampKfs.length < 2) {
+          setError("A speed ramp needs at least 2 keyframes.");
+          return;
+        }
+        item = {
+          id,
+          type,
+          keyframes: rampKfs.map((k) => ({ t: k.t, speed: k.speed })),
+          smoothness: rampSmoothness,
+          interpolation: rampInterp,
+          muteBelowSpeed: rampMuteBelow,
+        };
+        break;
     }
     if (item) {
       setEffects((prev) => [
-        ...prev.filter((e) => !(type === "glow_trail" && e.type === "glow_trail")),
+        // only one glow trail / speed ramp; a ramp replaces basic speed fx
+        ...prev.filter((e) => {
+          if (type === "glow_trail" && e.type === "glow_trail") return false;
+          if (type === "speed_ramp") {
+            return !["speed_ramp", "slow_motion", "speed_up", "freeze_frame"].includes(e.type);
+          }
+          if (
+            ["slow_motion", "speed_up", "freeze_frame"].includes(type) &&
+            e.type === "speed_ramp"
+          ) {
+            return false;
+          }
+          return true;
+        }),
         item as EffectItem,
       ]);
       if (type === "glow_trail") setKeyframes([]);
@@ -230,7 +289,7 @@ export function EffectsEditor({
             </select>
           </div>
 
-          {type !== "glow_trail" && (
+          {type !== "glow_trail" && type !== "speed_ramp" && (
             <div>
               <Label>{type === "freeze_frame" ? "Freeze at (s)" : "Start (s)"}</Label>
               <Input value={start} onChange={(e) => setStart(e.target.value)} className="h-9" />
@@ -277,6 +336,105 @@ export function EffectsEditor({
             </div>
           )}
         </div>
+
+        {type === "speed_ramp" && (
+          <div className="mt-3 space-y-3">
+            <p className="text-xs text-muted">
+              Drag the green points to shape the velocity curve (log scale,
+              0.05x–4x). Double-click the graph to add a keyframe;
+              double-click a point to remove it.
+            </p>
+            <VelocityCurveEditor
+              keyframes={rampKfs}
+              smoothness={rampSmoothness}
+              clipDuration={clipDuration}
+              onChange={setRampKfs}
+            />
+            <div className="flex flex-wrap items-end gap-3">
+              <div>
+                <Label>Impact anchor (s)</Label>
+                <Input
+                  value={rampAnchor}
+                  onChange={(e) => setRampAnchor(e.target.value)}
+                  className="h-9 w-24"
+                />
+              </div>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() =>
+                  setRampKfs(
+                    speedRampPreset(
+                      "hero_moment",
+                      Number(rampAnchor) || clipDuration / 2,
+                      clipDuration,
+                    ),
+                  )
+                }
+              >
+                Hero Moment
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() =>
+                  setRampKfs(
+                    speedRampPreset(
+                      "bullet_time",
+                      Number(rampAnchor) || clipDuration / 2,
+                      clipDuration,
+                    ),
+                  )
+                }
+              >
+                Bullet Time
+              </Button>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Ramp smoothness: {rampSmoothness.toFixed(2)}</Label>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={rampSmoothness}
+                  onChange={(e) => setRampSmoothness(Number(e.target.value))}
+                  className="w-full accent-[#6d5cff]"
+                />
+              </div>
+              <div>
+                <Label>Slow-motion frames</Label>
+                <select
+                  value={rampInterp}
+                  onChange={(e) => setRampInterp(e.target.value)}
+                  className="h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm"
+                >
+                  <option value="dup">Duplicate (fast)</option>
+                  <option value="blend">Blend (motion blur)</option>
+                  <option value="optical_flow">Optical flow (smoothest, VERY slow render)</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <Label>Mute original audio below speed</Label>
+              <select
+                value={String(rampMuteBelow)}
+                onChange={(e) => setRampMuteBelow(Number(e.target.value))}
+                className="h-9 w-full rounded-lg border border-border bg-surface px-2 text-sm"
+              >
+                <option value="0">Never (pitch-preserved stretch)</option>
+                <option value="0.25">Below 0.25x (recommended)</option>
+                <option value="0.5">Below 0.5x</option>
+              </select>
+            </div>
+            <p className="text-xs text-muted-strong">
+              This curve makes the clip ≈
+              {rampOutputDuration(rampKfs, rampSmoothness, clipDuration).toFixed(1)}s
+              long.
+            </p>
+          </div>
+        )}
 
         {type === "glow_trail" && (
           <div className="mt-3">
