@@ -48,6 +48,13 @@ enum SourceType {
   S3_URL
 }
 
+enum FilmstripStatus {
+  NONE
+  PENDING
+  READY
+  FAILED
+}
+
 enum RightsType {
   OWNED
   LICENSED
@@ -194,6 +201,14 @@ model VideoSource {
   externalId   String? // e.g. YouTube video id
   rights       RightsType @default(UNKNOWN)
   rightsNote   String? // attribution / license text supplied by user
+  // Timeline filmstrip: one sprite sheet of evenly spaced frames
+  filmstripKey         String?
+  filmstripStatus      FilmstripStatus @default(NONE)
+  filmstripCount       Int?
+  filmstripColumns     Int?
+  filmstripFrameWidth  Int?
+  filmstripFrameHeight Int?
+  filmstripError       String?
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 

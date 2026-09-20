@@ -1,5 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
   IsBoolean,
   IsEnum,
   IsNumber,
@@ -11,6 +14,7 @@ import {
   ValidateNested,
 } from "class-validator";
 import { Type } from "class-transformer";
+import { MAX_CLIP_PARTS } from "@clipforge/shared-types";
 
 export enum VoiceEffectDto {
   none = "none",
@@ -219,6 +223,53 @@ export class CreateClipDto {
   @Min(-30)
   @Max(30)
   trimEndDelta?: number;
+}
+
+/** One part of a stitched clip. */
+export class ClipPartDto {
+  @ApiProperty({ description: "Part start in the source (seconds)" })
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  sourceStart: number;
+
+  @ApiProperty({ description: "Part end in the source (seconds)" })
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.1)
+  sourceEnd: number;
+}
+
+/**
+ * Creating a clip from the timeline: either one range, or `segments`
+ * with several parts that play back to back in the order given.
+ */
+export class CreateClipFromRangeDto extends CreateClipDto {
+  @ApiPropertyOptional({ description: "Clip start in the source (seconds)" })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  sourceStart?: number;
+
+  @ApiPropertyOptional({ description: "Clip end in the source (seconds)" })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.1)
+  sourceEnd?: number;
+
+  @ApiPropertyOptional({
+    type: [ClipPartDto],
+    description: `Parts stitched in order (max ${MAX_CLIP_PARTS}); overrides sourceStart/sourceEnd`,
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(MAX_CLIP_PARTS)
+  @ValidateNested({ each: true })
+  @Type(() => ClipPartDto)
+  segments?: ClipPartDto[];
 }
 
 export class UpdateClipDto {

@@ -2,9 +2,10 @@ import type { Job } from "bullmq";
 import { writeFile, stat } from "fs/promises";
 import { getPrismaClient } from "@clipforge/database";
 import type { EditingPlan, RenderVideoJob } from "@clipforge/shared-types";
-import { renderCost } from "@clipforge/shared-types";
+import { planTotalDuration, renderCost } from "@clipforge/shared-types";
 import { buildAssDocument, type CaptionLine } from "../lib/captions";
 import { createWorkDir, fetchToWorkDir } from "../lib/media";
+import { concatParts, type ConcatPart } from "../lib/concat";
 import { runRender, type RenderSpec } from "../lib/render";
 import { probeVideo } from "../lib/ffmpeg";
 import { uploadFile } from "../lib/storage";
@@ -15,6 +16,9 @@ import { buildTimeMap } from "../lib/time-map";
 import { createGlowSprite } from "../lib/effects";
 import { buildCtaAss } from "../lib/cta";
 import { generateMaskVideo } from "../lib/bg-removal";
+
+/** Burned into every free-plan render, top-centre. */
+const WATERMARK_TEXT = "Powerd by CricPulse";
 
 /**
  * render-video: Rendering Agent + Quality Control Agent.
@@ -45,9 +49,11 @@ export async function processRenderVideo(job: Job<RenderVideoJob>): Promise<void
   if (!plan || !segment) {
     throw new Error("Clip has no editing plan");
   }
+  // A clip may be stitched from several source ranges played in order
+  const segments = plan.segments;
 
   const projectId = clip.projectId;
-  const duration = segment.sourceEnd - segment.sourceStart;
+  const duration = planTotalDuration(plan);
   // AI background removal is incompatible with speed effects (the mask
   // stream can't follow a warped timeline) — strip them defensively.
   const bgRemoval = plan.backgroundRemoval?.enabled ? plan.backgroundRemoval : null;
@@ -87,17 +93,51 @@ export async function processRenderVideo(job: Job<RenderVideoJob>): Promise<void
     });
     await emit(2, "Preparing render");
 
-    // For YouTube, fetch only this clip's window; the file then starts at 0
-    let inputPath: string;
-    let inputOffset = 0;
+    // Gather each part. For YouTube only the needed windows are fetched,
+    // so a stitched clip still never downloads the whole video.
+    const partLabel = segments.length > 1 ? ` (${segments.length} parts)` : "";
+    let parts: ConcatPart[];
     if (youtubeId) {
-      await emit(4, "Fetching clip section from YouTube");
-      inputPath = work.file("section.mp4");
-      await downloadYouTubeSection(youtubeId, segment.sourceStart, segment.sourceEnd, inputPath);
-      inputOffset = segment.sourceStart;
+      await emit(4, `Fetching clip section from YouTube${partLabel}`);
+      parts = [];
+      for (const [i, seg] of segments.entries()) {
+        const partPath = work.file(`section-${i}.mp4`);
+        await downloadYouTubeSection(youtubeId, seg.sourceStart, seg.sourceEnd, partPath);
+        // The download already starts at the part, so read it from 0
+        parts.push({
+          inputPath: partPath,
+          start: 0,
+          duration: seg.sourceEnd - seg.sourceStart,
+        });
+      }
     } else {
-      inputPath = await fetchToWorkDir(work, source.storageKey!, "source");
+      const sourcePath = await fetchToWorkDir(work, source.storageKey!, "source");
+      parts = segments.map((seg) => ({
+        inputPath: sourcePath,
+        start: seg.sourceStart,
+        duration: seg.sourceEnd - seg.sourceStart,
+      }));
     }
+
+    // Stitch first, then render normally: every step downstream works on
+    // one continuous clip and needs no notion of parts.
+    let inputPath = parts[0]!.inputPath;
+    // Where the clip sits inside `inputPath`. A joined file, or a
+    // per-window YouTube download, already *is* the clip and starts at 0;
+    // a whole uploaded source must be seeked into.
+    let renderStart = parts[0]!.start;
+    if (parts.length > 1) {
+      await emit(6, `Joining ${parts.length} parts`);
+      const joinedPath = work.file("joined.mp4");
+      const firstProbe = await probeVideo(parts[0]!.inputPath);
+      await concatParts(parts, joinedPath, {
+        hasAudio: firstProbe.hasAudio,
+        fps: firstProbe.fps && firstProbe.fps > 0 ? Math.round(firstProbe.fps) : 30,
+      });
+      inputPath = joinedPath;
+      renderStart = 0;
+    }
+    const renderEnd = renderStart + duration;
 
     // Captions → ASS file
     let assPath: string | undefined;
@@ -156,8 +196,8 @@ export async function processRenderVideo(job: Job<RenderVideoJob>): Promise<void
     const spec: RenderSpec = {
       inputPath,
       outputPath: work.file("output.mp4"),
-      sourceStart: segment.sourceStart - inputOffset,
-      sourceEnd: segment.sourceEnd - inputOffset,
+      sourceStart: renderStart,
+      sourceEnd: renderEnd,
       width: width || 1080,
       height: height || 1920,
       blurBackground: plan.background?.type === "blurred_original",
@@ -166,7 +206,7 @@ export async function processRenderVideo(job: Job<RenderVideoJob>): Promise<void
       assPath,
       ctaAssPath,
       hasAudio: Boolean(source.audioKey) || true, // probe decides below
-      watermarkText: user.plan === "FREE" ? "Powered by ClipForge" : undefined,
+      watermarkText: user.plan === "FREE" ? WATERMARK_TEXT : undefined,
       rangeEffects: effectiveEffects,
       glowSpritePath,
       audio: plan.audio,
@@ -179,7 +219,7 @@ export async function processRenderVideo(job: Job<RenderVideoJob>): Promise<void
       const maskPath = work.file("mask.gray");
       await generateMaskVideo({
         inputPath,
-        start: segment.sourceStart - inputOffset,
+        start: renderStart,
         duration,
         outPath: maskPath,
         onProgress: (f) => {

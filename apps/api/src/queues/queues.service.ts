@@ -12,6 +12,7 @@ import {
   type VideoImportJob,
   type TranscriptionJob,
   type CleanupFilesJob,
+  type FilmstripJob,
   type HighlightGenerationJob,
   type RenderVideoJob,
 } from "@clipforge/shared-types";
@@ -63,6 +64,14 @@ export class QueuesService implements OnModuleDestroy {
       "transcribe",
       payload,
     );
+    return job.id ?? "";
+  }
+
+  async enqueueFilmstrip(payload: FilmstripJob): Promise<string> {
+    const job = await this.queue(QUEUES.FILMSTRIP).add("filmstrip", payload, {
+      attempts: 2,
+    });
+    this.logger.log(`Enqueued filmstrip for project ${payload.projectId}`);
     return job.id ?? "";
   }
 

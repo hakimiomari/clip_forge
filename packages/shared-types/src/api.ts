@@ -106,6 +106,45 @@ export interface CreateClipInput {
   trimEndDelta?: number;
 }
 
+export interface ClipPartInput {
+  sourceStart: number;
+  sourceEnd: number;
+}
+
+/**
+ * Creating a clip from the timeline: either one range, or several parts
+ * stitched together in order.
+ */
+export interface CreateClipFromRangeInput extends Omit<CreateClipInput, "trimStartDelta" | "trimEndDelta"> {
+  sourceStart?: number;
+  sourceEnd?: number;
+  /** Parts played back to back; takes precedence over sourceStart/End */
+  segments?: ClipPartInput[];
+  backgroundMode?: string;
+  ctaEnabled?: boolean;
+}
+
+export type FilmstripStatus = "NONE" | "PENDING" | "READY" | "FAILED";
+
+/**
+ * Sprite sheet of evenly spaced frames rendered behind the timeline.
+ * Frames are laid out left-to-right, top-to-bottom; frame `i` is the
+ * source at `i * interval` seconds.
+ */
+export interface FilmstripInfo {
+  status: FilmstripStatus;
+  /** Presigned sprite URL — present only when status is READY */
+  url: string | null;
+  count: number;
+  columns: number;
+  rows: number;
+  frameWidth: number;
+  frameHeight: number;
+  /** Seconds between consecutive frames */
+  interval: number;
+  error?: string | null;
+}
+
 export interface ClipDetail extends ClipSummary {
   renderJob: {
     id: string;

@@ -14,6 +14,7 @@ export const QUEUES = {
   RENDER_VIDEO: "render-video",
   QUALITY_CHECK: "quality-check",
   CLEANUP_FILES: "cleanup-files",
+  FILMSTRIP: "filmstrip",
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
@@ -37,6 +38,16 @@ export interface HighlightGenerationJob {
   projectId: string;
   userId: string;
   options: HighlightGenerationOptions;
+  /** Total credits already taken — refunded in full if the job fails */
+  chargedCredits?: number;
+}
+
+/** Clip settings applied to every short in automatic mode. */
+export interface AutoClipOptions {
+  captionsEnabled: boolean;
+  zoomEnabled: boolean;
+  backgroundMode: "blur" | "fill" | "black" | string;
+  ctaEnabled: boolean;
 }
 
 export interface HighlightGenerationOptions {
@@ -47,6 +58,14 @@ export interface HighlightGenerationOptions {
   captionStyle: CaptionStyleName;
   /** Use the transcript (when available) for selection — default true */
   useTranscript?: boolean;
+  /**
+   * Automatic mode: after picking the moments, build and render a short
+   * for each one instead of only suggesting them.
+   */
+  autoCreateClips?: boolean;
+  autoClipOptions?: AutoClipOptions;
+  /** Credits pre-charged per short, refunded per short if one fails */
+  autoRenderCreditsPerClip?: number;
 }
 
 export interface ClipGenerationJob {
@@ -75,6 +94,12 @@ export interface QualityCheckJob {
 
 export interface CleanupFilesJob {
   storageKeys: string[];
+}
+
+/** Builds the timeline's frame-thumbnail sprite sheet for a source. */
+export interface FilmstripJob {
+  projectId: string;
+  userId: string;
 }
 
 export type VideoFormat = "vertical" | "square" | "landscape";

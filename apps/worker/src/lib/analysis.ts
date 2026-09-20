@@ -21,16 +21,41 @@ export interface MediaAnalysis {
   energyPerSecond: number[];
 }
 
-function runFfmpeg(args: string[], timeoutMs: number): Promise<{ stdout: string; stderr: string }> {
+/** Reports how far through the media a pass has read, 0–1. */
+export type ProgressFn = (fraction: number) => void;
+
+function runFfmpeg(
+  args: string[],
+  timeoutMs: number,
+  progress?: { durationSeconds: number; onProgress: ProgressFn },
+): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = track(spawn(FFMPEG, args, { windowsHide: true }));
     let stdout = "";
     let stderr = "";
+    let pending = "";
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
       reject(new Error(`ffmpeg analysis timed out after ${timeoutMs}ms`));
     }, timeoutMs);
-    child.stdout.on("data", (d: Buffer) => (stdout += d.toString()));
+    child.stdout.on("data", (d: Buffer) => {
+      const chunk = d.toString();
+      stdout += chunk;
+      if (!progress || progress.durationSeconds <= 0) return;
+      // -progress writes `out_time_us=…` lines here, interleaved with the
+      // astats metadata; each parser picks out its own keys.
+      pending += chunk;
+      let idx: number;
+      while ((idx = pending.indexOf("\n")) >= 0) {
+        const line = pending.slice(0, idx);
+        pending = pending.slice(idx + 1);
+        const us = line.match(/^out_time_us=(\d+)/);
+        if (us?.[1]) {
+          const seconds = Number(us[1]) / 1_000_000;
+          progress.onProgress(Math.max(0, Math.min(1, seconds / progress.durationSeconds)));
+        }
+      }
+    });
     child.stderr.on("data", (d: Buffer) => {
       stderr += d.toString();
       // stderr can get large on long files; keep the tail
@@ -65,13 +90,20 @@ function inputArgs(input: string): string[] {
  */
 export async function analyzeAudio(
   filePath: string,
-  opts?: { noiseDb?: number; minDuration?: number },
+  opts?: {
+    noiseDb?: number;
+    minDuration?: number;
+    durationSeconds?: number;
+    onProgress?: ProgressFn;
+  },
 ): Promise<{ silences: SilenceRange[]; energyPerSecond: number[] }> {
   const noise = opts?.noiseDb ?? -35;
   const minDur = opts?.minDuration ?? 0.4;
   const { stdout, stderr } = await runFfmpeg(
     [
       "-hide_banner",
+      "-nostats",
+      ...(opts?.onProgress ? ["-progress", "pipe:1"] : []),
       ...inputArgs(filePath),
       "-vn",
       "-af",
@@ -82,6 +114,9 @@ export async function analyzeAudio(
       "-f", "null", "-",
     ],
     20 * 60_000,
+    opts?.onProgress && opts.durationSeconds
+      ? { durationSeconds: opts.durationSeconds, onProgress: opts.onProgress }
+      : undefined,
   );
 
   const silences: SilenceRange[] = [];
@@ -122,10 +157,13 @@ export async function audioEnergyPerSecond(filePath: string): Promise<number[]> 
 export async function detectSceneChanges(
   filePath: string,
   threshold = 0.35,
+  opts?: { durationSeconds?: number; onProgress?: ProgressFn },
 ): Promise<number[]> {
   const { stderr } = await runFfmpeg(
     [
       "-hide_banner",
+      "-nostats",
+      ...(opts?.onProgress ? ["-progress", "pipe:1"] : []),
       ...inputArgs(filePath),
       "-an",
       // Sample at 6 fps and score at thumbnail size — cut points are the
@@ -134,6 +172,9 @@ export async function detectSceneChanges(
       "-f", "null", "-",
     ],
     30 * 60_000,
+    opts?.onProgress && opts.durationSeconds
+      ? { durationSeconds: opts.durationSeconds, onProgress: opts.onProgress }
+      : undefined,
   );
   const times: number[] = [];
   for (const match of stderr.matchAll(/pts_time:([\d.]+)/g)) {
@@ -144,7 +185,7 @@ export async function detectSceneChanges(
 }
 
 /** Scene detection cost scales with length; beyond this we rely on audio. */
-const SCENE_DETECT_MAX_SECONDS = 45 * 60;
+export const SCENE_DETECT_MAX_SECONDS = 45 * 60;
 
 /**
  * Audio and video may come from different inputs (a local file for both,
@@ -156,6 +197,8 @@ export async function analyzeMedia(inputs: {
   audio: string;
   video: string | null;
   durationSeconds?: number;
+  /** Combined progress of the audio and scene passes, 0–1 */
+  onProgress?: ProgressFn;
 }): Promise<MediaAnalysis> {
   const runScenes =
     inputs.video !== null &&
@@ -166,9 +209,32 @@ export async function analyzeMedia(inputs: {
       `Skipping scene detection for a ${Math.round((inputs.durationSeconds ?? 0) / 60)}min source (limit ${SCENE_DETECT_MAX_SECONDS / 60}min)`,
     );
   }
+  // Both passes run at once, so report the slower of the two: progress
+  // should reflect when analysis actually finishes.
+  const done = { audio: 0, scenes: runScenes ? 0 : 1 };
+  const report = () => inputs.onProgress?.(Math.min(done.audio, done.scenes));
+
   const [audio, sceneChanges] = await Promise.all([
-    analyzeAudio(inputs.audio),
-    runScenes ? detectSceneChanges(inputs.video!) : Promise.resolve([]),
+    analyzeAudio(inputs.audio, {
+      durationSeconds: inputs.durationSeconds,
+      onProgress: inputs.onProgress
+        ? (f) => {
+            done.audio = f;
+            report();
+          }
+        : undefined,
+    }),
+    runScenes
+      ? detectSceneChanges(inputs.video!, 0.35, {
+          durationSeconds: inputs.durationSeconds,
+          onProgress: inputs.onProgress
+            ? (f) => {
+                done.scenes = f;
+                report();
+              }
+            : undefined,
+        })
+      : Promise.resolve([]),
   ]);
   return { ...audio, sceneChanges };
 }

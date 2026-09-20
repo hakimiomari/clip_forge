@@ -198,6 +198,9 @@ importers:
       '@aws-sdk/client-s3':
         specifier: ^3.700.0
         version: 3.1133.0
+      '@aws-sdk/s3-request-presigner':
+        specifier: ^3.1133.0
+        version: 3.1133.0
       '@clipforge/database':
         specifier: workspace:*
         version: link:../../packages/database

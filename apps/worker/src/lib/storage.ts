@@ -4,6 +4,7 @@ import {
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { createWriteStream, createReadStream } from "fs";
 import { stat } from "fs/promises";
 import { pipeline } from "stream/promises";
@@ -45,6 +46,22 @@ export async function uploadFile(
       ContentType: contentType,
       ContentLength: size,
     }),
+  );
+}
+
+/**
+ * Temporary URL ffmpeg can read directly. Lets a job seek into a large
+ * object with range requests instead of downloading the whole file.
+ * Signed against the internal endpoint — the worker, not a browser.
+ */
+export async function presignGetUrl(
+  storageKey: string,
+  expiresIn = 6 * 3600,
+): Promise<string> {
+  return getSignedUrl(
+    client,
+    new GetObjectCommand({ Bucket: env.S3_BUCKET, Key: storageKey }),
+    { expiresIn },
   );
 }
 

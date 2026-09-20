@@ -49,16 +49,28 @@ const CLIP_FORMAT_FALLBACK =
 function runYtDlp(
   args: string[],
   timeoutMs: number,
+  onLine?: (line: string) => void,
 ): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = track(spawn(YTDLP, args, { windowsHide: true }));
     let stdout = "";
     let stderr = "";
+    let pendingLine = "";
     const timeout = setTimeout(() => {
       child.kill("SIGKILL");
       reject(new Error(`YouTube request timed out after ${Math.round(timeoutMs / 60_000)} min`));
     }, timeoutMs);
-    child.stdout.on("data", (d: Buffer) => (stdout += d.toString()));
+    child.stdout.on("data", (d: Buffer) => {
+      const chunk = d.toString();
+      stdout += chunk;
+      if (!onLine) return;
+      pendingLine += chunk;
+      let idx: number;
+      while ((idx = pendingLine.indexOf("\n")) >= 0) {
+        onLine(pendingLine.slice(0, idx).trim());
+        pendingLine = pendingLine.slice(idx + 1);
+      }
+    });
     child.stderr.on("data", (d: Buffer) => {
       stderr += d.toString();
       if (stderr.length > 64_000) stderr = stderr.slice(-32_000);
@@ -251,6 +263,68 @@ export async function resolveYouTubeStreams(videoId: string): Promise<YouTubeStr
   const [audioUrl, videoUrl] = urls;
   if (!audioUrl) throw new Error("YouTube: no playable stream found for this video");
   return { audioUrl, videoUrl: videoUrl ?? null };
+}
+
+/**
+ * Pulls the media that analysis reads into `workDir`.
+ *
+ * Analysis used to point ffmpeg straight at the CDN URLs, but YouTube
+ * throttles a single sequential read to roughly playback speed — a
+ * 25-minute video took ~13 minutes just to read its audio, with the CPU
+ * almost idle. yt-dlp fetches the same bytes in parallel chunks (~30s
+ * for that audio), so downloading first and analysing locally is around
+ * an order of magnitude faster. Both files live in the job's temp dir
+ * and are deleted with it.
+ */
+export async function downloadAnalysisMedia(
+  videoId: string,
+  workDir: string,
+  opts: {
+    includeVideo: boolean;
+    onProgress?: (stage: "audio" | "video", fraction: number) => void;
+  },
+): Promise<{ audioPath: string; videoPath: string | null }> {
+  const fetchTrack = async (
+    stage: "audio" | "video",
+    format: string,
+    outPath: string,
+  ): Promise<void> => {
+    await runYtDlp(
+      [
+        ...baseArgs(),
+        "--newline",
+        // A machine-readable progress line we can turn into a percentage
+        "--progress-template", "download:CFPROGRESS %(progress._percent_str)s",
+        "-f", format,
+        "-o", outPath,
+        "--", watchUrl(videoId),
+      ],
+      30 * 60_000,
+      (line) => {
+        const pct = line.match(/CFPROGRESS\s+([\d.]+)%/);
+        if (pct?.[1]) opts.onProgress?.(stage, Number(pct[1]) / 100);
+      },
+    );
+    const exists = await stat(outPath).then(() => true, () => false);
+    if (!exists) throw new Error(`YouTube: could not download the ${stage} track`);
+  };
+
+  const audioPath = path.join(workDir, "analysis-audio.m4a");
+  await fetchTrack("audio", "ba[ext=m4a]/ba", audioPath);
+
+  let videoPath: string | null = null;
+  if (opts.includeVideo) {
+    const target = path.join(workDir, "analysis-video.mp4");
+    try {
+      // Lowest usable resolution: scene detection scores thumbnails anyway
+      await fetchTrack("video", "bv*[height<=360][ext=mp4]/bv*[height<=360]/b[height<=360]", target);
+      videoPath = target;
+    } catch (err) {
+      // Scene cuts are a bonus signal; audio alone still produces highlights
+      console.warn(`Analysis video unavailable, continuing audio-only: ${String(err).slice(0, 200)}`);
+    }
+  }
+  return { audioPath, videoPath };
 }
 
 /**

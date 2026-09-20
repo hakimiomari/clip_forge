@@ -6,10 +6,13 @@ import { processVideoImport } from "./processors/video-import.processor";
 import { processCleanup } from "./processors/cleanup.processor";
 import { processHighlightGeneration } from "./processors/highlight-generation.processor";
 import { processRenderVideo } from "./processors/render-video.processor";
+import { processFilmstrip } from "./processors/filmstrip.processor";
 import { closeProgressPublisher } from "./lib/progress";
 import { checkFfmpegCapabilities } from "./lib/ffmpeg";
 import { finalizeStalledJob, isStalledFailure } from "./lib/stalled";
 import { killTrackedChildren } from "./lib/children";
+import { cleanupStaleWorkDirs } from "./lib/media";
+import { closeRenderQueue } from "./lib/render-queue";
 import { getPrismaClient } from "@clipforge/database";
 
 /**
@@ -30,6 +33,7 @@ const registry: Array<{ queue: string; processor: Processor<any>; concurrency: n
   { queue: QUEUES.HIGHLIGHT_GENERATION, processor: processHighlightGeneration, concurrency: 1 },
   { queue: QUEUES.RENDER_VIDEO, processor: processRenderVideo, concurrency: 1 },
   { queue: QUEUES.CLEANUP_FILES, processor: processCleanup, concurrency: 5 },
+  { queue: QUEUES.FILMSTRIP, processor: processFilmstrip, concurrency: 2 },
 ];
 
 const workers = registry.map(({ queue, processor, concurrency }) => {
@@ -62,6 +66,13 @@ void checkFfmpegCapabilities().catch((err: Error) => {
   console.error(`ffmpeg check failed: ${err.message}`);
 });
 
+// Reclaim scratch space from jobs that were killed mid-run
+void cleanupStaleWorkDirs()
+  .then((removed) => {
+    if (removed > 0) console.log(`Cleaned up ${removed} stale work director${removed === 1 ? "y" : "ies"}`);
+  })
+  .catch((err: Error) => console.error(`Work dir cleanup failed: ${err.message}`));
+
 async function shutdown(signal: string): Promise<void> {
   console.log(`\n${signal} received, shutting down workers…`);
   // Stop media children first so in-flight jobs fail fast (and get
@@ -69,6 +80,7 @@ async function shutdown(signal: string): Promise<void> {
   const killed = killTrackedChildren();
   if (killed > 0) console.log(`Stopped ${killed} running media process(es)`);
   await Promise.allSettled(workers.map((w) => w.close(true)));
+  await closeRenderQueue().catch(() => undefined);
   closeProgressPublisher();
   await getPrismaClient().$disconnect();
   connection.disconnect();

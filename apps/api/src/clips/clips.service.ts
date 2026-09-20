@@ -5,9 +5,13 @@ import {
 } from "@nestjs/common";
 import type { Prisma } from "@clipforge/database";
 import {
+  buildEditingPlan,
+  CLIP_RESOLUTIONS,
   EDITING_PLAN_VERSION,
+  planTotalDuration,
   renderCost,
   type CaptionStyleName,
+  type ClipPart,
   type DownloadLink,
   type EditingPlan,
   type VideoFormat,
@@ -18,17 +22,20 @@ import { QueuesService } from "../queues/queues.service";
 import { StorageService } from "../storage/storage.service";
 import { UsageService } from "../usage/usage.service";
 import { HighlightsService } from "../highlights/highlights.service";
-import { CreateClipDto, UpdateClipDto } from "./dto/clips.dto";
+import { ProjectsService } from "../projects/projects.service";
+import {
+  CreateClipDto,
+  CreateClipFromRangeDto,
+  UpdateClipDto,
+} from "./dto/clips.dto";
 import { validateRangeEffects } from "./effects.validation";
-
-const RESOLUTIONS: Record<VideoFormat, string> = {
-  vertical: "1080x1920",
-  square: "1080x1080",
-  landscape: "1920x1080",
-};
 
 const MIN_CLIP_SECONDS = 5;
 const MAX_CLIP_SECONDS = 240;
+/** A single part of a stitched clip can be brief — the total still must reach MIN_CLIP_SECONDS. */
+const MIN_PART_SECONDS = 0.5;
+/** Rounding slack allowed when a selection ends on the final frame. */
+const END_TOLERANCE_SECONDS = 0.5;
 
 @Injectable()
 export class ClipsService {
@@ -38,6 +45,7 @@ export class ClipsService {
     private readonly storage: StorageService,
     private readonly usage: UsageService,
     private readonly highlights: HighlightsService,
+    private readonly projects: ProjectsService,
   ) {}
 
   /** Loads a clip and enforces ownership through its project. */
@@ -81,7 +89,102 @@ export class ClipsService {
       start + MIN_CLIP_SECONDS,
       source.duration,
     );
-    const duration = end - start;
+
+    return this.createClipForRange({
+      projectId,
+      userId,
+      parts: [{ start, end }],
+      dto,
+      highlightId,
+      fallbackName: highlight.title,
+    });
+  }
+
+  /**
+   * Creates a clip from a range the user picked on the timeline —
+   * the same pipeline as an AI highlight, without the suggestion.
+   */
+  async createFromRange(
+    projectId: string,
+    userId: string,
+    dto: CreateClipFromRangeDto,
+  ) {
+    await this.projects.getOwned(projectId, userId);
+    const source = await this.prisma.videoSource.findUnique({
+      where: { projectId },
+    });
+    if (!source?.duration || !hasProcessableMedia(source)) {
+      throw new BadRequestException("Source media is missing for this project");
+    }
+    // One range or several parts stitched in order
+    const requestedParts =
+      dto.segments && dto.segments.length > 0
+        ? dto.segments.map((s) => ({ start: s.sourceStart, end: s.sourceEnd }))
+        : dto.sourceStart !== undefined && dto.sourceEnd !== undefined
+          ? [{ start: dto.sourceStart, end: dto.sourceEnd }]
+          : null;
+    if (!requestedParts) {
+      throw new BadRequestException(
+        "Provide sourceStart and sourceEnd, or a segments array",
+      );
+    }
+
+    const parts = requestedParts.map((part, index) => {
+      const label = requestedParts.length > 1 ? `Part ${index + 1}` : "The clip";
+      if (part.end <= part.start) {
+        throw new BadRequestException(`${label} must end after it starts`);
+      }
+      if (part.start >= source.duration!) {
+        throw new BadRequestException(
+          `${label} starts past the end of the video`,
+        );
+      }
+      // Tolerate a rounding overshoot at the very end, but refuse a range
+      // that genuinely runs past the video rather than quietly shrinking it
+      if (part.end > source.duration! + END_TOLERANCE_SECONDS) {
+        throw new BadRequestException(
+          `${label} ends at ${part.end.toFixed(1)}s but the video is only ` +
+            `${source.duration!.toFixed(1)}s long`,
+        );
+      }
+      // Use the range as given rather than silently widening it — this is
+      // the user's explicit selection, not a suggestion to adjust
+      const start = clampTime(part.start, 0, source.duration!);
+      const end = clampTime(part.end, start, source.duration!);
+      if (end - start < MIN_PART_SECONDS) {
+        throw new BadRequestException(
+          `${label} is too short — each part must be at least ${MIN_PART_SECONDS} seconds`,
+        );
+      }
+      return { start, end };
+    });
+
+    const total = parts.reduce((sum, p) => sum + (p.end - p.start), 0);
+    if (total < MIN_CLIP_SECONDS) {
+      throw new BadRequestException(
+        `Select at least ${MIN_CLIP_SECONDS} seconds of video in total`,
+      );
+    }
+    if (total > MAX_CLIP_SECONDS) {
+      throw new BadRequestException(
+        `Clips are limited to ${MAX_CLIP_SECONDS} seconds (selected ${total.toFixed(1)}s)`,
+      );
+    }
+
+    return this.createClipForRange({ projectId, userId, parts, dto });
+  }
+
+  /** Shared tail of clip creation: plan → row → captions → render. */
+  private async createClipForRange(args: {
+    projectId: string;
+    userId: string;
+    parts: ClipPart[];
+    dto: CreateClipDto;
+    highlightId?: string;
+    fallbackName?: string | null;
+  }) {
+    const { projectId, userId, parts, dto, highlightId, fallbackName } = args;
+    const duration = parts.reduce((sum, p) => sum + (p.end - p.start), 0);
     if (duration > MAX_CLIP_SECONDS) {
       throw new BadRequestException(
         `Clips are limited to ${MAX_CLIP_SECONDS} seconds`,
@@ -89,8 +192,7 @@ export class ClipsService {
     }
 
     const plan = buildEditingPlan({
-      start,
-      end,
+      parts,
       format: dto.format,
       captionsEnabled: dto.captionsEnabled,
       captionStyle: dto.captionStyle,
@@ -103,7 +205,7 @@ export class ClipsService {
       data: {
         projectId,
         highlightId,
-        name: dto.name?.trim() || highlight.title || "Clip",
+        name: dto.name?.trim() || fallbackName || "Clip",
         status: "DRAFT",
         format: dto.format,
         resolution: plan.resolution,
@@ -113,38 +215,57 @@ export class ClipsService {
         planVersion: EDITING_PLAN_VERSION,
       },
     });
-    await this.syncCaptionsFromTranscript(clip.id, projectId, start, end);
+    await this.syncCaptionsFromTranscript(clip.id, projectId, parts);
     return this.render(clip.id, userId);
   }
 
-  /** Copies transcript segments overlapping the window as clip captions. */
+  /**
+   * Copies transcript text overlapping each part, shifted onto the
+   * stitched clip's timeline: part 2's captions start after part 1 ends,
+   * not at their original source time.
+   */
   private async syncCaptionsFromTranscript(
     clipId: string,
     projectId: string,
-    start: number,
-    end: number,
+    parts: ClipPart[],
   ): Promise<void> {
     await this.prisma.caption.deleteMany({ where: { clipId } });
     const transcript = await this.prisma.transcript.findUnique({
       where: { projectId },
       include: {
         segments: {
-          where: { startTime: { lt: end }, endTime: { gt: start } },
+          where: {
+            OR: parts.map((p) => ({
+              startTime: { lt: p.end },
+              endTime: { gt: p.start },
+            })),
+          },
           orderBy: { index: "asc" },
         },
       },
     });
     if (!transcript || transcript.segments.length === 0) return;
-    await this.prisma.caption.createMany({
-      data: transcript.segments.map((s, index) => ({
-        clipId,
-        index,
-        startTime: Math.max(0, s.startTime - start),
-        endTime: Math.min(end - start, s.endTime - start),
-        text: s.text,
-        speaker: s.speaker,
-      })),
-    });
+
+    const rows: Prisma.CaptionCreateManyInput[] = [];
+    let offset = 0;
+    for (const part of parts) {
+      const partLength = part.end - part.start;
+      for (const s of transcript.segments) {
+        if (s.startTime >= part.end || s.endTime <= part.start) continue;
+        rows.push({
+          clipId,
+          index: rows.length,
+          startTime: Math.max(0, s.startTime - part.start) + offset,
+          endTime: Math.min(partLength, s.endTime - part.start) + offset,
+          text: s.text,
+          speaker: s.speaker,
+        });
+      }
+      offset += partLength;
+    }
+    if (rows.length > 0) {
+      await this.prisma.caption.createMany({ data: rows });
+    }
   }
 
   /** Charges credits and queues a render of the clip's current plan. */
@@ -154,12 +275,26 @@ export class ClipsService {
       throw new BadRequestException("This clip is already rendering");
     }
     const plan = clip.editingPlan as unknown as EditingPlan | null;
-    const segment = plan?.segments?.[0];
-    if (!plan || !segment) {
+    if (!plan?.segments?.length) {
       throw new BadRequestException("Clip has no editing plan");
     }
-    const duration = segment.sourceEnd - segment.sourceStart;
+    // Stitched clips are billed on their total length, not the first part
+    const duration = planTotalDuration(plan);
     const cost = renderCost(duration);
+
+    // A clip created before the transcript existed has no caption rows, so
+    // re-rendering it would silently drop captions again. Pick them up now
+    // that they exist — only when empty, so nothing already set is lost.
+    if (plan.captions.enabled) {
+      const existingCaptions = await this.prisma.caption.count({ where: { clipId } });
+      if (existingCaptions === 0) {
+        await this.syncCaptionsFromTranscript(
+          clipId,
+          clip.projectId,
+          plan.segments.map((s) => ({ start: s.sourceStart, end: s.sourceEnd })),
+        );
+      }
+    }
 
     await this.usage.spend(userId, cost, "RENDER_CLIP", {
       projectId: clip.projectId,
@@ -243,18 +378,35 @@ export class ClipsService {
     });
     if (!source?.duration) throw new BadRequestException("Source missing");
 
-    const start = clampTime(
-      dto.sourceStart ?? segment.sourceStart,
-      0,
-      source.duration - MIN_CLIP_SECONDS,
-    );
-    const end = clampTime(
-      dto.sourceEnd ?? segment.sourceEnd,
-      start + MIN_CLIP_SECONDS,
-      source.duration,
-    );
-    if (end - start > MAX_CLIP_SECONDS) {
-      throw new BadRequestException(`Clips are limited to ${MAX_CLIP_SECONDS} seconds`);
+    const existingParts: ClipPart[] = plan.segments.map((s) => ({
+      start: s.sourceStart,
+      end: s.sourceEnd,
+    }));
+    const wantsTrim = dto.sourceStart !== undefined || dto.sourceEnd !== undefined;
+    if (wantsTrim && existingParts.length > 1) {
+      throw new BadRequestException(
+        "This clip is stitched from several parts — trimming one range would be ambiguous. " +
+          "Create a new clip from the timeline to change its parts.",
+      );
+    }
+
+    let parts = existingParts;
+    if (existingParts.length === 1) {
+      const current = existingParts[0]!;
+      const start = clampTime(
+        dto.sourceStart ?? current.start,
+        0,
+        source.duration - MIN_CLIP_SECONDS,
+      );
+      const end = clampTime(
+        dto.sourceEnd ?? current.end,
+        start + MIN_CLIP_SECONDS,
+        source.duration,
+      );
+      if (end - start > MAX_CLIP_SECONDS) {
+        throw new BadRequestException(`Clips are limited to ${MAX_CLIP_SECONDS} seconds`);
+      }
+      parts = [{ start, end }];
     }
 
     const format = (dto.format ?? plan.format) as VideoFormat;
@@ -265,8 +417,7 @@ export class ClipsService {
           ? "blur"
           : "black";
     const newPlan = buildEditingPlan({
-      start,
-      end,
+      parts,
       format,
       captionsEnabled: dto.captionsEnabled ?? plan.captions.enabled,
       captionStyle: (dto.captionStyle ?? plan.captions.style) as CaptionStyleName,
@@ -275,8 +426,10 @@ export class ClipsService {
       backgroundMode: dto.backgroundMode ?? existingBackgroundMode,
     });
 
-    const trimChanged =
-      start !== segment.sourceStart || end !== segment.sourceEnd;
+    const trimChanged = parts.some(
+      (p, i) =>
+        p.start !== existingParts[i]?.start || p.end !== existingParts[i]?.end,
+    );
 
     // AI background removal (edit-time): preserve + apply overrides
     const mergedBgRemoval = {
@@ -350,8 +503,13 @@ export class ClipsService {
     // Preserve advanced effects across plan rebuilds. If the trim window
     // moved, shift effect times so they stay anchored to the same source
     // moments; drop any that fall outside the new window.
-    const shift = segment.sourceStart - start;
-    const newDuration = end - start;
+    // Multi-part clips can't be trimmed here, so their timeline is
+    // unchanged and effects keep their positions (shift stays 0).
+    const shift =
+      existingParts.length === 1 && parts[0]
+        ? existingParts[0]!.start - parts[0].start
+        : 0;
+    const newDuration = parts.reduce((sum, p) => sum + (p.end - p.start), 0);
     newPlan.rangeEffects = (plan.rangeEffects ?? [])
       .map((e) => {
         if (e.type === "glow_trail") {
@@ -384,12 +542,12 @@ export class ClipsService {
         status: "EDITING",
         format,
         resolution: newPlan.resolution,
-        duration: end - start,
+        duration: newDuration,
         editingPlan: newPlan as unknown as Prisma.InputJsonValue,
       },
     });
     if (trimChanged) {
-      await this.syncCaptionsFromTranscript(clipId, clip.projectId, start, end);
+      await this.syncCaptionsFromTranscript(clipId, clip.projectId, parts);
     }
     return updated;
   }
@@ -405,7 +563,7 @@ export class ClipsService {
     if (!plan || !segment) {
       throw new BadRequestException("Clip has no editing plan");
     }
-    const clipDuration = segment.sourceEnd - segment.sourceStart;
+    const clipDuration = planTotalDuration(plan);
     const validated = validateRangeEffects(effects, clipDuration);
     if (
       plan.backgroundRemoval?.enabled &&
@@ -495,64 +653,4 @@ export class ClipsService {
 
 function clampTime(x: number, min: number, max: number): number {
   return Math.round(Math.max(min, Math.min(max, x)) * 10) / 10;
-}
-
-function buildEditingPlan(opts: {
-  start: number;
-  end: number;
-  format: VideoFormat;
-  captionsEnabled: boolean;
-  captionStyle: CaptionStyleName | string;
-  zoomEnabled: boolean;
-  backgroundMode?: "blur" | "fill" | "black" | string;
-  ctaEnabled?: boolean;
-}): EditingPlan {
-  const duration = opts.end - opts.start;
-  const background: EditingPlan["background"] =
-    opts.backgroundMode === "fill"
-      ? { type: "crop_fill" }
-      : opts.backgroundMode === "black"
-        ? undefined
-        : { type: "blurred_original", blurIntensity: 55 };
-  return {
-    version: EDITING_PLAN_VERSION,
-    duration,
-    format: opts.format,
-    resolution: RESOLUTIONS[opts.format],
-    template: "auto_v1",
-    segments: [
-      {
-        sourceStart: opts.start,
-        sourceEnd: opts.end,
-        crop: { mode: "center" },
-        effects: opts.zoomEnabled
-          ? [{ type: "zoom_in", start: 0, duration, intensity: 1.08 }]
-          : [],
-      },
-    ],
-    captions: {
-      enabled: opts.captionsEnabled,
-      style: opts.captionStyle as CaptionStyleName,
-      position: "center",
-      highlightKeywords: false,
-      animation: "sentence",
-    },
-    transitions: [],
-    audio: {
-      originalVolume: 1,
-      backgroundMusic: false,
-      musicVolume: 0,
-      fadeIn: true,
-      fadeOut: true,
-      normalize: true,
-    },
-    background,
-    cta: {
-      enabled: opts.ctaEnabled ?? true,
-      likeText: "LIKE",
-      followText: "FOLLOW",
-      timing: "middle",
-      position: "top",
-    },
-  };
 }

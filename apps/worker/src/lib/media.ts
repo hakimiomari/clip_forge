@@ -1,4 +1,4 @@
-import { mkdir, rm } from "fs/promises";
+import { mkdir, readdir, rm, stat } from "fs/promises";
 import os from "os";
 import path from "path";
 import { downloadToFile } from "./storage";
@@ -7,6 +7,38 @@ export interface WorkDir {
   dir: string;
   file: (name: string) => string;
   cleanup: () => Promise<void>;
+}
+
+/**
+ * Deletes work dirs left behind by jobs that were killed before their
+ * `finally` could run (a crash, an OOM kill, a dev hot-reload). Media
+ * scratch is large — a single interrupted import can strand hundreds of
+ * megabytes — so the worker sweeps on startup.
+ */
+export async function cleanupStaleWorkDirs(
+  maxAgeMs = 6 * 3600_000,
+): Promise<number> {
+  const root = path.join(os.tmpdir(), "clipforge");
+  let entries: string[];
+  try {
+    entries = await readdir(root);
+  } catch {
+    return 0; // nothing has run yet
+  }
+  const cutoff = Date.now() - maxAgeMs;
+  let removed = 0;
+  for (const entry of entries) {
+    const dir = path.join(root, entry);
+    try {
+      const info = await stat(dir);
+      if (!info.isDirectory() || info.mtimeMs >= cutoff) continue;
+      await rm(dir, { recursive: true, force: true });
+      removed++;
+    } catch {
+      // Raced with another sweep, or not ours to delete — skip it
+    }
+  }
+  return removed;
 }
 
 /** Creates an isolated temp directory for one job run. */

@@ -35,6 +35,10 @@ require auth unless marked **public**. Errors follow Nest's shape:
 | DELETE | `/projects/:id` | 204 — cascades DB rows, queues storage cleanup |
 | POST | `/projects/:id/import` | attach source & start pipeline (see below) |
 | GET | `/projects/:id/source` | source details + presigned `mediaUrl` |
+| POST | `/projects/:id/highlights/generate` | find moments: `{clipDuration, clipCount, format?, editingStyle?, captionStyle?, useTranscript?}` (2 credits). Add `autoCreateClips: true` (plus `captionsEnabled?`, `zoomEnabled?`, `backgroundMode?`, `ctaEnabled?`) for **automatic mode**: the worker also builds and renders a short per moment. Automatic mode pre-charges `2 + clipCount × renderCost(clipDuration)` and returns `{creditsCharged}`; shorts that can't be produced are refunded by the worker |
+| GET | `/projects/:id/filmstrip` | timeline frame sprite: `{status, url, count, columns, rows, frameWidth, frameHeight, interval}`. `status` is `NONE \| PENDING \| READY \| FAILED`; `url` is presigned and set only when `READY` |
+| POST | `/projects/:id/filmstrip` | 202 — queues sprite generation (no-op while `PENDING`/`READY`, retries after `FAILED`) |
+| POST | `/projects/:id/clips` | clip from the timeline: either one range (`{sourceStart, sourceEnd, …}`) or **several parts** stitched in order (`{segments: [{sourceStart, sourceEnd}, …], …}`, max 12), plus `{name?, format, captionsEnabled, captionStyle, zoomEnabled, backgroundMode?, ctaEnabled?}`. Charges the render cost and queues the render, like `create-clip`. Each part ≥ 0.5 s, total 5–240 s; ranges are used as given, never widened |
 
 ### Import body
 
@@ -80,10 +84,8 @@ Namespace `/events` at the API origin, `withCredentials: true`.
 - Listen `project:progress` → `{projectId, status, progress, step, error?}`
 - Emit `unsubscribe:project` `{projectId}` when leaving
 
-## Planned (M2/M3 — per PRD)
+## Planned
 
-`POST /projects/:id/highlights/generate`, `GET /projects/:id/highlights`,
-`POST /highlights/:id/create-clip`, `GET/PATCH /clips/:id(/timeline)`,
-`POST /clips/:id/render`, `GET /clips/:id/render-status`,
-`POST /clips/:id/export`, `GET /clips/:id/download`,
-`GET /projects/:id/exports`, `DELETE /exports/:id`.
+`POST /clips/:id/export`, `DELETE /exports/:id`, and a persisted
+multi-track `GET/PATCH /clips/:id/timeline` (today's timeline selects a
+single source range; the `Timeline` table is reserved for that work).

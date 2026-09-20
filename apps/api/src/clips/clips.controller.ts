@@ -10,7 +10,11 @@ import {
 } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { ClipsService } from "./clips.service";
-import { CreateClipDto, UpdateClipDto } from "./dto/clips.dto";
+import {
+  CreateClipDto,
+  CreateClipFromRangeDto,
+  UpdateClipDto,
+} from "./dto/clips.dto";
 import {
   CurrentUser,
   RequestUser,
@@ -28,6 +32,16 @@ export class ClipsController {
     @Body() dto: CreateClipDto,
   ) {
     return this.clips.createFromHighlight(highlightId, user.id, dto);
+  }
+
+  /** Clip from a range the user selected on the timeline. */
+  @Post("projects/:id/clips")
+  createFromRange(
+    @CurrentUser() user: RequestUser,
+    @Param("id") projectId: string,
+    @Body() dto: CreateClipFromRangeDto,
+  ) {
+    return this.clips.createFromRange(projectId, user.id, dto);
   }
 
   @Get("clips/:id")

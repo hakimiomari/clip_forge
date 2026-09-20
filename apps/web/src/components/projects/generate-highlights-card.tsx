@@ -53,13 +53,12 @@ export function GenerateHighlightsCard({
       <div className="flex items-center gap-2">
         <Sparkles className="h-5 w-5 text-accent" />
         <CardTitle>
-          {hasHighlights ? "Regenerate highlights" : "Generate AI highlights"}
+          {hasHighlights ? "Regenerate suggestions" : "Suggestions only"}
         </CardTitle>
       </div>
       <CardDescription className="mt-1">
-        The AI analyzes speech energy, pauses, scene changes{" "}
-        {"—"} and the transcript when available {"—"} to suggest the
-        best moments. Costs 2 credits.
+        Suggests the best moments without rendering anything, so you can
+        review each one and pick which become clips. Costs 2 credits.
       </CardDescription>
 
       <div className="mt-5 space-y-4">

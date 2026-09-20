@@ -26,6 +26,8 @@ import { GenerateHighlightsCard } from "@/components/projects/generate-highlight
 import { HighlightList } from "@/components/projects/highlight-list";
 import { ClipCard } from "@/components/projects/clip-card";
 import { TranscriptPanel } from "@/components/projects/transcript-panel";
+import { TimelineEditor } from "@/components/projects/timeline-editor";
+import { AutoShortsCard } from "@/components/projects/auto-shorts-card";
 
 const PROCESSING_STATUSES = [
   "IMPORTING",
@@ -34,14 +36,17 @@ const PROCESSING_STATUSES = [
   "RENDERING",
 ];
 
-/** Official YouTube player URL for a YouTube-sourced project, else null. */
-function youtubeEmbedUrl(project: {
+/** YouTube video id for a YouTube-sourced project, else null. */
+function youtubeVideoId(project: {
   sourceUrl: string | null;
   source: { sourceType: string } | null;
 }): string | null {
   if (project.source?.sourceType !== "YOUTUBE" || !project.sourceUrl) return null;
-  const id = new URL(project.sourceUrl).searchParams.get("v");
-  return id ? `https://www.youtube.com/embed/${id}` : null;
+  try {
+    return new URL(project.sourceUrl).searchParams.get("v");
+  } catch {
+    return null;
+  }
 }
 
 export default function ProjectDetailPage({
@@ -166,45 +171,42 @@ export default function ProjectDetailPage({
       )}
 
       <div className="grid gap-6 md:grid-cols-5">
-        <Card className="overflow-hidden p-0 md:col-span-3">
-          <div className="aspect-video w-full bg-black">
-            {project.mediaUrl ? (
-              <video
-                src={project.mediaUrl}
-                controls
-                className="h-full w-full"
-                poster={project.source?.thumbnailUrl ?? undefined}
-              />
-            ) : youtubeEmbedUrl(project) ? (
-              // YouTube media is never stored, so preview via the official player
-              <iframe
-                src={youtubeEmbedUrl(project)!}
-                title={project.source?.title ?? "YouTube video"}
-                className="h-full w-full"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
-              />
-            ) : project.source?.thumbnailUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={project.source.thumbnailUrl}
-                alt=""
-                className="h-full w-full object-contain"
-              />
-            ) : (
-              <div className="flex h-full items-center justify-center text-sm text-muted">
-                No preview available
+        <div className="md:col-span-3">
+          {canGenerate && project.source?.duration ? (
+            <TimelineEditor
+              projectId={projectId}
+              duration={project.source.duration}
+              mediaUrl={project.mediaUrl}
+              youtubeId={youtubeVideoId(project)}
+              poster={project.source.thumbnailUrl}
+              highlights={project.highlights}
+            />
+          ) : (
+            <Card className="overflow-hidden p-0">
+              <div className="aspect-video w-full bg-black">
+                {project.source?.thumbnailUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={project.source.thumbnailUrl}
+                    alt=""
+                    className="h-full w-full object-contain"
+                  />
+                ) : (
+                  <div className="flex h-full items-center justify-center text-sm text-muted">
+                    No preview available
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-          {project.source?.title && (
-            <div className="p-4">
-              <p className="truncate text-sm font-medium">
-                {project.source.title}
-              </p>
-            </div>
+              {project.source?.title && (
+                <div className="p-4">
+                  <p className="truncate text-sm font-medium">
+                    {project.source.title}
+                  </p>
+                </div>
+              )}
+            </Card>
           )}
-        </Card>
+        </div>
 
         <div className="space-y-4 md:col-span-2">
           <Card>
@@ -240,10 +242,13 @@ export default function ProjectDetailPage({
           </Card>
 
           {canGenerate ? (
-            <GenerateHighlightsCard
-              projectId={projectId}
-              hasHighlights={project.highlights.length > 0}
-            />
+            <>
+              <AutoShortsCard projectId={projectId} />
+              <GenerateHighlightsCard
+                projectId={projectId}
+                hasHighlights={project.highlights.length > 0}
+              />
+            </>
           ) : (
             <Card>
               <div className="flex items-center gap-2">

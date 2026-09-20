@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import type { Prisma, Project, RightsType } from "@clipforge/database";
-import { CREDIT_COSTS } from "@clipforge/shared-types";
+import { CREDIT_COSTS, type FilmstripInfo } from "@clipforge/shared-types";
 import { PrismaService } from "../prisma/prisma.service";
 import { QueuesService } from "../queues/queues.service";
 import { StorageService } from "../storage/storage.service";
@@ -216,6 +216,66 @@ export class ProjectsService {
       this.logger.error(`Import setup failed for project ${projectId}`, err);
       throw err;
     }
+  }
+
+  /**
+   * Frame-thumbnail sprite for the timeline. Generation is queued on
+   * demand (and retried after a failure) — the editor polls this.
+   */
+  async getFilmstrip(projectId: string, userId: string): Promise<FilmstripInfo> {
+    await this.getOwned(projectId, userId);
+    const source = await this.prisma.videoSource.findUnique({
+      where: { projectId },
+    });
+    if (!source) throw new NotFoundException("No source imported yet");
+
+    const count = source.filmstripCount ?? 0;
+    const columns = source.filmstripColumns ?? 0;
+    const ready = source.filmstripStatus === "READY" && Boolean(source.filmstripKey);
+    return {
+      status: source.filmstripStatus,
+      url: ready ? await this.storage.presignGet(source.filmstripKey!) : null,
+      count,
+      columns,
+      rows: columns > 0 ? Math.ceil(count / columns) : 0,
+      frameWidth: source.filmstripFrameWidth ?? 0,
+      frameHeight: source.filmstripFrameHeight ?? 0,
+      // Frames are evenly spaced across the whole source
+      interval: count > 0 && source.duration ? source.duration / count : 0,
+      error: source.filmstripError,
+    };
+  }
+
+  /** Queues filmstrip generation unless it is already running or done. */
+  async requestFilmstrip(projectId: string, userId: string): Promise<FilmstripInfo> {
+    await this.getOwned(projectId, userId);
+    const source = await this.prisma.videoSource.findUnique({
+      where: { projectId },
+    });
+    if (!source) throw new NotFoundException("No source imported yet");
+    if (!source.duration) {
+      throw new BadRequestException(
+        "Wait for the import to finish before building the timeline preview",
+      );
+    }
+
+    // Claim the slot atomically so double-clicks queue only one job
+    const { count } = await this.prisma.videoSource.updateMany({
+      where: { projectId, filmstripStatus: { in: ["NONE", "FAILED"] } },
+      data: { filmstripStatus: "PENDING", filmstripError: null },
+    });
+    if (count > 0) {
+      try {
+        await this.queues.enqueueFilmstrip({ projectId, userId });
+      } catch (err) {
+        await this.prisma.videoSource.updateMany({
+          where: { projectId, filmstripStatus: "PENDING" },
+          data: { filmstripStatus: "FAILED", filmstripError: "Could not queue generation" },
+        });
+        throw err;
+      }
+    }
+    return this.getFilmstrip(projectId, userId);
   }
 
   async getSource(projectId: string, userId: string) {

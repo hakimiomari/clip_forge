@@ -78,4 +78,33 @@ export class GenerateHighlightsDto {
   @IsOptional()
   @IsBoolean()
   useTranscript: boolean = true;
+
+  @ApiPropertyOptional({
+    default: false,
+    description:
+      "Automatic mode: also build and render a short for every moment found",
+  })
+  @IsOptional()
+  @IsBoolean()
+  autoCreateClips: boolean = false;
+
+  @ApiPropertyOptional({ default: true, description: "Burn captions into automatic shorts" })
+  @IsOptional()
+  @IsBoolean()
+  captionsEnabled: boolean = true;
+
+  @ApiPropertyOptional({ default: true, description: "Slow push-in zoom on automatic shorts" })
+  @IsOptional()
+  @IsBoolean()
+  zoomEnabled: boolean = true;
+
+  @ApiPropertyOptional({ enum: ["blur", "fill", "black"], default: "blur" })
+  @IsOptional()
+  @IsIn(["blur", "fill", "black"])
+  backgroundMode: string = "blur";
+
+  @ApiPropertyOptional({ default: true, description: "Like & Follow banner" })
+  @IsOptional()
+  @IsBoolean()
+  ctaEnabled: boolean = true;
 }

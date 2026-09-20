@@ -3,7 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import { CREDIT_COSTS } from "@clipforge/shared-types";
+import { CREDIT_COSTS, renderCost } from "@clipforge/shared-types";
 import { hasProcessableMedia } from "../common/media-source";
 import { PrismaService } from "../prisma/prisma.service";
 import { ProjectsService } from "../projects/projects.service";
@@ -43,12 +43,15 @@ export class HighlightsService {
       );
     }
 
-    await this.usage.spend(
-      userId,
-      CREDIT_COSTS.generateHighlights,
-      "GENERATE_HIGHLIGHTS",
-      { projectId },
-    );
+    // Automatic mode renders a short per moment, so the renders are paid
+    // for up front; the worker refunds any short it doesn't produce.
+    const perClipCredits = dto.autoCreateClips ? renderCost(dto.clipDuration) : 0;
+    const totalCredits =
+      CREDIT_COSTS.generateHighlights + perClipCredits * dto.clipCount;
+
+    await this.usage.spend(userId, totalCredits, "GENERATE_HIGHLIGHTS", {
+      projectId,
+    });
     try {
       await this.prisma.project.update({
         where: { id: projectId },
@@ -57,6 +60,7 @@ export class HighlightsService {
       await this.queues.enqueueHighlightGeneration({
         projectId,
         userId,
+        chargedCredits: totalCredits,
         options: {
           clipDuration: dto.clipDuration,
           clipCount: dto.clipCount,
@@ -64,13 +68,24 @@ export class HighlightsService {
           editingStyle: dto.editingStyle,
           captionStyle: dto.captionStyle,
           useTranscript: dto.useTranscript,
+          autoCreateClips: dto.autoCreateClips,
+          autoRenderCreditsPerClip: perClipCredits,
+          autoClipOptions: {
+            captionsEnabled: dto.captionsEnabled,
+            zoomEnabled: dto.zoomEnabled,
+            backgroundMode: dto.backgroundMode,
+            ctaEnabled: dto.ctaEnabled,
+          },
         },
       });
-      return { ok: true, status: "ANALYZING" };
+      return {
+        ok: true,
+        status: "ANALYZING",
+        autoCreateClips: dto.autoCreateClips,
+        creditsCharged: totalCredits,
+      };
     } catch (err) {
-      await this.usage.refund(userId, CREDIT_COSTS.generateHighlights, {
-        projectId,
-      });
+      await this.usage.refund(userId, totalCredits, { projectId });
       await this.prisma.project.update({
         where: { id: projectId },
         data: { status: project.status },

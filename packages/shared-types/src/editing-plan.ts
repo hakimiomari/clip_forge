@@ -198,6 +198,108 @@ export interface PlanSegment {
   effects: PlanEffect[];
 }
 
+/** Most parts one clip may be stitched from. */
+export const MAX_CLIP_PARTS = 12;
+
+export const CLIP_RESOLUTIONS: Record<VideoFormat, string> = {
+  vertical: "1080x1920",
+  square: "1080x1080",
+  landscape: "1920x1080",
+};
+
+/** One source range that becomes a part of a clip. */
+export interface ClipPart {
+  start: number;
+  end: number;
+}
+
+export interface BuildEditingPlanOptions {
+  /** Parts play back to back in this order */
+  parts: ClipPart[];
+  format: VideoFormat;
+  captionsEnabled: boolean;
+  captionStyle: CaptionStyleName | string;
+  zoomEnabled: boolean;
+  backgroundMode?: "blur" | "fill" | "black" | string;
+  ctaEnabled?: boolean;
+}
+
+/**
+ * The deterministic v1 "Editing Plan Agent": turns chosen ranges and
+ * user options into the render recipe. Lives here because both the API
+ * (manual and highlight clips) and the worker (automatic shorts) build
+ * plans, and they must produce byte-identical output.
+ */
+export function buildEditingPlan(opts: BuildEditingPlanOptions): EditingPlan {
+  const duration = opts.parts.reduce((sum, p) => sum + (p.end - p.start), 0);
+  const background: EditingPlan["background"] =
+    opts.backgroundMode === "fill"
+      ? { type: "crop_fill" }
+      : opts.backgroundMode === "black"
+        ? undefined
+        : { type: "blurred_original", blurIntensity: 55 };
+  return {
+    version: EDITING_PLAN_VERSION,
+    duration,
+    format: opts.format,
+    resolution: CLIP_RESOLUTIONS[opts.format],
+    template: "auto_v1",
+    segments: opts.parts.map((part) => ({
+      sourceStart: part.start,
+      sourceEnd: part.end,
+      crop: { mode: "center" as const },
+      effects: opts.zoomEnabled
+        ? [
+            {
+              type: "zoom_in" as const,
+              start: 0,
+              duration: part.end - part.start,
+              intensity: 1.08,
+            },
+          ]
+        : [],
+    })),
+    captions: {
+      enabled: opts.captionsEnabled,
+      style: opts.captionStyle as CaptionStyleName,
+      position: "center",
+      highlightKeywords: false,
+      animation: "sentence",
+    },
+    transitions: [],
+    audio: {
+      originalVolume: 1,
+      backgroundMusic: false,
+      musicVolume: 0,
+      fadeIn: true,
+      fadeOut: true,
+      normalize: true,
+    },
+    background,
+    cta: {
+      enabled: opts.ctaEnabled ?? true,
+      likeText: "LIKE",
+      followText: "FOLLOW",
+      timing: "middle",
+      position: "top",
+    },
+  };
+}
+
+/**
+ * Total length of the clip: segments play back to back, so this is the
+ * sum of their source ranges (before any speed effects). Always use
+ * this rather than `segments[0]` — clips can be stitched from parts.
+ */
+export function planTotalDuration(
+  plan: Pick<EditingPlan, "segments"> | null | undefined,
+): number {
+  return (plan?.segments ?? []).reduce(
+    (total, s) => total + Math.max(0, s.sourceEnd - s.sourceStart),
+    0,
+  );
+}
+
 export interface PlanEffect {
   type: "zoom_in" | "zoom_out" | "pan";
   start: number; // seconds relative to segment start
