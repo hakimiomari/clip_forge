@@ -55,6 +55,15 @@ enum FilmstripStatus {
   FAILED
 }
 
+enum ResearchStatus {
+  PENDING
+  RESEARCHING
+  BUILDING
+  RENDERING
+  READY
+  FAILED
+}
+
 enum RightsType {
   OWNED
   LICENSED
@@ -114,6 +123,7 @@ model User {
   updatedAt     DateTime  @updatedAt
 
   projects           Project[]
+  researchVideos     ResearchVideo[]
   refreshTokens      RefreshToken[]
   creditTransactions CreditTransaction[]
   subscription       Subscription?
@@ -381,4 +391,35 @@ model Export {
   clip Clip @relation(fields: [clipId], references: [id], onDelete: Cascade)
 
   @@index([clipId, createdAt(sort: Desc)])
+}
+
+// ── Research videos ───────────────────────────────────────
+// A video built from a topic rather than from uploaded footage:
+// facts and openly-licensed media are gathered, then assembled.
+
+model ResearchVideo {
+  id           String         @id @default(cuid())
+  userId       String
+  prompt       String
+  title        String?
+  description  String?
+  status       ResearchStatus @default(PENDING)
+  error        String?
+  format       String         @default("vertical")
+  // Scenes actually used, with their media and attribution (see
+  // shared-types ResearchScene) — kept so the result is auditable
+  scenes       Json?
+  storageKey   String? // finished MP4
+  thumbnailKey String?
+  duration     Float?
+  // Progress lives on the row: the browser polls this, which keeps the
+  // realtime gateway scoped to projects
+  progress     Int            @default(0)
+  step         String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
 }

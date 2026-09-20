@@ -12,6 +12,7 @@ import {
   Coins,
   Settings,
   ShieldCheck,
+  Sparkles,
 } from "lucide-react";
 import { useAuthStore } from "@/lib/auth-store";
 import { cn } from "@/lib/utils";
@@ -20,6 +21,7 @@ import { Button } from "@/components/ui/button";
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/projects", label: "Projects", icon: FolderOpen },
+  { href: "/research", label: "Research video", icon: Sparkles },
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {

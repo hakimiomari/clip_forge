@@ -13,6 +13,7 @@ import {
   type TranscriptionJob,
   type CleanupFilesJob,
   type FilmstripJob,
+  type ResearchVideoJob,
   type HighlightGenerationJob,
   type RenderVideoJob,
 } from "@clipforge/shared-types";
@@ -72,6 +73,16 @@ export class QueuesService implements OnModuleDestroy {
       attempts: 2,
     });
     this.logger.log(`Enqueued filmstrip for project ${payload.projectId}`);
+    return job.id ?? "";
+  }
+
+  async enqueueResearchVideo(payload: ResearchVideoJob): Promise<string> {
+    const job = await this.queue(QUEUES.RESEARCH_VIDEO).add("research", payload, {
+      // Research + render is long and not safely resumable midway; the
+      // processor owns its own failure handling and refund
+      attempts: 1,
+    });
+    this.logger.log(`Enqueued research-video ${payload.researchId}`);
     return job.id ?? "";
   }
 

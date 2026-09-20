@@ -7,6 +7,7 @@ import { processCleanup } from "./processors/cleanup.processor";
 import { processHighlightGeneration } from "./processors/highlight-generation.processor";
 import { processRenderVideo } from "./processors/render-video.processor";
 import { processFilmstrip } from "./processors/filmstrip.processor";
+import { processResearchVideo } from "./processors/research-video.processor";
 import { closeProgressPublisher } from "./lib/progress";
 import { checkFfmpegCapabilities } from "./lib/ffmpeg";
 import { finalizeStalledJob, isStalledFailure } from "./lib/stalled";
@@ -34,6 +35,7 @@ const registry: Array<{ queue: string; processor: Processor<any>; concurrency: n
   { queue: QUEUES.RENDER_VIDEO, processor: processRenderVideo, concurrency: 1 },
   { queue: QUEUES.CLEANUP_FILES, processor: processCleanup, concurrency: 5 },
   { queue: QUEUES.FILMSTRIP, processor: processFilmstrip, concurrency: 2 },
+  { queue: QUEUES.RESEARCH_VIDEO, processor: processResearchVideo, concurrency: 1 },
 ];
 
 const workers = registry.map(({ queue, processor, concurrency }) => {
