@@ -260,6 +260,10 @@ function ClipEditor({
   const [bgRemovalEnabled, setBgRemovalEnabled] = useState(planBg?.enabled ?? false);
   const [bgReplace, setBgReplace] = useState(planBg?.replace ?? "blur");
   const [bgColor, setBgColor] = useState(planBg?.color ?? "0b0d12");
+  const planCartoon = clip.editingPlan?.cartoon;
+  const [cartoonEnabled, setCartoonEnabled] = useState(planCartoon?.enabled ?? false);
+  const [cartoonStyle, setCartoonStyle] = useState(planCartoon?.style ?? "hayao");
+  const [cartoonFps, setCartoonFps] = useState(String(planCartoon?.fps ?? 12));
   const planCta = clip.editingPlan?.cta;
   const [ctaEnabled, setCtaEnabled] = useState(planCta?.enabled ?? true);
   const [ctaLike, setCtaLike] = useState(planCta?.likeText ?? "LIKE");
@@ -297,6 +301,11 @@ function ClipEditor({
             enabled: bgRemovalEnabled,
             replace: bgReplace,
             ...(bgReplace === "color" ? { color: bgColor } : {}),
+          },
+          cartoon: {
+            enabled: cartoonEnabled,
+            style: cartoonStyle,
+            fps: Number(cartoonFps) || 12,
           },
           cta: {
             enabled: ctaEnabled,
@@ -493,6 +502,53 @@ function ClipEditor({
             <option value="robot">Robot</option>
           </select>
         </div>
+      </div>
+
+      <div className="space-y-3 rounded-lg border border-border bg-surface p-3">
+        <label className="flex cursor-pointer items-center gap-2 text-sm font-semibold">
+          <input
+            type="checkbox"
+            checked={cartoonEnabled}
+            onChange={(e) => setCartoonEnabled(e.target.checked)}
+            className="h-4 w-4 accent-primary"
+          />
+          🎨 Cartoon style (AI)
+        </label>
+        {cartoonEnabled && (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Look</Label>
+                <select
+                  value={cartoonStyle}
+                  onChange={(e) => setCartoonStyle(e.target.value)}
+                  className="h-9 w-full rounded-lg border border-border bg-surface-raised px-2 text-sm"
+                >
+                  <option value="hayao">Soft anime (Ghibli-like)</option>
+                  <option value="shinkai">Vivid anime (high contrast)</option>
+                </select>
+              </div>
+              <div>
+                <Label>Animation rate</Label>
+                <select
+                  value={cartoonFps}
+                  onChange={(e) => setCartoonFps(e.target.value)}
+                  className="h-9 w-full rounded-lg border border-border bg-surface-raised px-2 text-sm"
+                >
+                  <option value="8">8 fps — most hand-drawn</option>
+                  <option value="12">12 fps — classic animation</option>
+                  <option value="24">24 fps — smooth (slower)</option>
+                </select>
+              </div>
+            </div>
+            <p className="text-xs text-warning">
+              Redraws every frame with a local AI model, so the render takes
+              longer — roughly a minute per 10s of clip at 12 fps. Captions and
+              the banner stay sharp on top. Can&apos;t be combined with
+              background removal.
+            </p>
+          </>
+        )}
       </div>
 
       <div className="space-y-3 rounded-lg border border-border bg-surface p-3">

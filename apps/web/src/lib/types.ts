@@ -44,6 +44,11 @@ export interface ClipDetailResponse {
       replace?: string;
       color?: string;
     };
+    cartoon?: {
+      enabled: boolean;
+      style?: string;
+      fps?: number;
+    };
     cta?: {
       enabled: boolean;
       likeText?: string;

@@ -39,6 +39,22 @@ export interface EditingPlan {
   cta?: PlanCta;
   /** AI subject cut-out (per-frame segmentation) */
   backgroundRemoval?: PlanBackgroundRemoval;
+  /** AI cartoon / anime stylization of the footage */
+  cartoon?: PlanCartoon;
+}
+
+export type CartoonStyleName = "hayao" | "shinkai";
+
+/**
+ * Runs the clip through AnimeGANv3 before anything else is drawn, so
+ * captions, the banner and the watermark stay crisp on top of the
+ * stylized footage.
+ */
+export interface PlanCartoon {
+  enabled: boolean;
+  style: CartoonStyleName;
+  /** Frames per second to stylize at — 12 reads as hand-drawn */
+  fps: number;
 }
 
 // ── Advanced range effects ───────────────────────────────
@@ -222,6 +238,7 @@ export interface BuildEditingPlanOptions {
   zoomEnabled: boolean;
   backgroundMode?: "blur" | "fill" | "black" | string;
   ctaEnabled?: boolean;
+  cartoon?: PlanCartoon;
 }
 
 /**
@@ -283,6 +300,7 @@ export function buildEditingPlan(opts: BuildEditingPlanOptions): EditingPlan {
       timing: "middle",
       position: "top",
     },
+    ...(opts.cartoon?.enabled ? { cartoon: opts.cartoon } : {}),
   };
 }
 

@@ -14,6 +14,7 @@ import {
   type ClipPart,
   type DownloadLink,
   type EditingPlan,
+  type PlanCartoon,
   type VideoFormat,
 } from "@clipforge/shared-types";
 import { hasProcessableMedia } from "../common/media-source";
@@ -24,6 +25,7 @@ import { UsageService } from "../usage/usage.service";
 import { HighlightsService } from "../highlights/highlights.service";
 import { ProjectsService } from "../projects/projects.service";
 import {
+  CartoonDto,
   CreateClipDto,
   CreateClipFromRangeDto,
   UpdateClipDto,
@@ -199,6 +201,7 @@ export class ClipsService {
       zoomEnabled: dto.zoomEnabled,
       backgroundMode: dto.backgroundMode ?? "blur",
       ctaEnabled: dto.ctaEnabled ?? true,
+      cartoon: normalizeCartoon(dto.cartoon),
     });
 
     const clip = await this.prisma.clip.create({
@@ -457,6 +460,25 @@ export class ClipsService {
     }
     newPlan.backgroundRemoval = mergedBgRemoval;
 
+    // Cartoon stylization (edit-time): preserve + apply overrides
+    const mergedCartoon: PlanCartoon = {
+      enabled: false,
+      style: "hayao",
+      fps: 12,
+      ...plan.cartoon,
+      ...(dto.cartoon
+        ? Object.fromEntries(
+            Object.entries(dto.cartoon).filter(([, v]) => v !== undefined),
+          )
+        : {}),
+    };
+    if (mergedCartoon.enabled && mergedBgRemoval.enabled) {
+      throw new BadRequestException(
+        "Cartoon style and AI background removal both redraw the footage — turn one off",
+      );
+    }
+    newPlan.cartoon = mergedCartoon.enabled ? mergedCartoon : undefined;
+
     // Preserve existing CTA settings, then layer the new ones on top
     newPlan.cta = {
       ...(newPlan.cta as NonNullable<EditingPlan["cta"]>),
@@ -653,4 +675,16 @@ export class ClipsService {
 
 function clampTime(x: number, min: number, max: number): number {
   return Math.round(Math.max(min, Math.min(max, x)) * 10) / 10;
+}
+
+/** Fills in cartoon defaults; `undefined` leaves the footage untouched. */
+function normalizeCartoon(
+  cartoon: CartoonDto | undefined,
+): PlanCartoon | undefined {
+  if (!cartoon?.enabled) return undefined;
+  return {
+    enabled: true,
+    style: cartoon.style ?? "hayao",
+    fps: cartoon.fps ?? 12,
+  };
 }
