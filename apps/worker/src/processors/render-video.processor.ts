@@ -13,6 +13,7 @@ import { refundCredits } from "../lib/credits";
 import { downloadYouTubeSection } from "../lib/youtube";
 import { buildTimeMap } from "../lib/time-map";
 import { createGlowSprite } from "../lib/effects";
+import { buildCtaAss } from "../lib/cta";
 
 /**
  * render-video: Rendering Agent + Quality Control Agent.
@@ -112,6 +113,22 @@ export async function processRenderVideo(job: Job<RenderVideoJob>): Promise<void
     }
 
     const [width, height] = plan.resolution.split("x").map(Number);
+
+    // Like/Follow call-to-action banner (its own burned ASS track)
+    let ctaAssPath: string | undefined;
+    if (plan.cta?.enabled) {
+      ctaAssPath = work.file("cta.ass");
+      await writeFile(
+        ctaAssPath,
+        buildCtaAss(plan.cta, {
+          width: width || 1080,
+          height: height || 1920,
+          outputDuration,
+        }),
+        "utf8",
+      );
+    }
+
     const user = await prisma.user.findUniqueOrThrow({
       where: { id: userId },
       select: { plan: true },
@@ -138,6 +155,7 @@ export async function processRenderVideo(job: Job<RenderVideoJob>): Promise<void
       fillFrame: plan.background?.type === "crop_fill",
       zoom: segment.effects.some((e) => e.type === "zoom_in"),
       assPath,
+      ctaAssPath,
       hasAudio: Boolean(source.audioKey) || true, // probe decides below
       watermarkText: user.plan === "FREE" ? "Made with ClipForge" : undefined,
       rangeEffects: plan.rangeEffects,

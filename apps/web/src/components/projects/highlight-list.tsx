@@ -25,6 +25,7 @@ export function HighlightList({
   const [captionsEnabled, setCaptionsEnabled] = useState(true);
   const [backgroundMode, setBackgroundMode] = useState("blur");
   const [zoomEnabled, setZoomEnabled] = useState(true);
+  const [ctaEnabled, setCtaEnabled] = useState(true);
 
   const createClip = useMutation({
     mutationFn: (highlightId: string) =>
@@ -36,6 +37,7 @@ export function HighlightList({
           captionStyle,
           zoomEnabled,
           backgroundMode,
+          ctaEnabled,
         },
       }),
     onMutate: (id) => {
@@ -73,6 +75,15 @@ export function HighlightList({
             className="h-4 w-4 accent-[#6d5cff]"
           />
           Slow zoom
+        </label>
+        <label className="flex cursor-pointer items-center gap-2">
+          <input
+            type="checkbox"
+            checked={ctaEnabled}
+            onChange={(e) => setCtaEnabled(e.target.checked)}
+            className="h-4 w-4 accent-[#6d5cff]"
+          />
+          ♥ Like &amp; Follow banner
         </label>
         <label className="flex items-center gap-2">
           <span className="text-muted">Background:</span>

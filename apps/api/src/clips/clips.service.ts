@@ -96,6 +96,7 @@ export class ClipsService {
       captionStyle: dto.captionStyle,
       zoomEnabled: dto.zoomEnabled,
       backgroundMode: dto.backgroundMode ?? "blur",
+      ctaEnabled: dto.ctaEnabled ?? true,
     });
 
     const clip = await this.prisma.clip.create({
@@ -277,6 +278,17 @@ export class ClipsService {
     const trimChanged =
       start !== segment.sourceStart || end !== segment.sourceEnd;
 
+    // Preserve existing CTA settings, then layer the new ones on top
+    newPlan.cta = {
+      ...(newPlan.cta as NonNullable<EditingPlan["cta"]>),
+      ...plan.cta,
+      ...(dto.cta
+        ? Object.fromEntries(
+            Object.entries(dto.cta).filter(([, v]) => v !== undefined),
+          )
+        : {}),
+    };
+
     // Preserve existing audio settings, then layer the new ones on top
     newPlan.audio = {
       ...newPlan.audio,
@@ -457,6 +469,7 @@ function buildEditingPlan(opts: {
   captionStyle: CaptionStyleName | string;
   zoomEnabled: boolean;
   backgroundMode?: "blur" | "fill" | "black" | string;
+  ctaEnabled?: boolean;
 }): EditingPlan {
   const duration = opts.end - opts.start;
   const background: EditingPlan["background"] =
@@ -498,5 +511,12 @@ function buildEditingPlan(opts: {
       normalize: true,
     },
     background,
+    cta: {
+      enabled: opts.ctaEnabled ?? true,
+      likeText: "LIKE",
+      followText: "FOLLOW",
+      timing: "middle",
+      position: "top",
+    },
   };
 }

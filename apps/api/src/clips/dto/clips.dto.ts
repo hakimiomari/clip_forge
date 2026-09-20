@@ -97,12 +97,71 @@ export enum BackgroundMode {
   black = "black",
 }
 
+export enum CtaTimingDto {
+  start = "start",
+  middle = "middle",
+  end = "end",
+  always = "always",
+  custom = "custom",
+}
+
+/** Like/Follow banner settings; omitted fields keep their current value. */
+export class CtaSettingsDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  enabled?: boolean;
+
+  @ApiPropertyOptional({ example: "LIKE" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  likeText?: string;
+
+  @ApiPropertyOptional({ example: "FOLLOW" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  followText?: string;
+
+  @ApiPropertyOptional({ enum: CtaTimingDto })
+  @IsOptional()
+  @IsEnum(CtaTimingDto)
+  timing?: CtaTimingDto;
+
+  @ApiPropertyOptional({ description: "Custom window start (s), timing=custom" })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(600)
+  customStart?: number;
+
+  @ApiPropertyOptional({ description: "Custom window end (s), timing=custom" })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.5)
+  @Max(600)
+  customEnd?: number;
+
+  @ApiPropertyOptional({ enum: ["top", "bottom"] })
+  @IsOptional()
+  @IsEnum({ top: "top", bottom: "bottom" })
+  position?: "top" | "bottom";
+}
+
 export class CreateClipDto {
   @ApiPropertyOptional({ example: "The biggest mistake" })
   @IsOptional()
   @IsString()
   @MaxLength(120)
   name?: string;
+
+  @ApiPropertyOptional({ description: "Like/Follow banner", default: true })
+  @IsOptional()
+  @IsBoolean()
+  ctaEnabled: boolean = true;
 
   @ApiPropertyOptional({ enum: BackgroundMode, default: BackgroundMode.blur })
   @IsOptional()
@@ -194,4 +253,10 @@ export class UpdateClipDto {
   @ValidateNested()
   @Type(() => AudioSettingsDto)
   audio?: AudioSettingsDto;
+
+  @ApiPropertyOptional({ type: CtaSettingsDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => CtaSettingsDto)
+  cta?: CtaSettingsDto;
 }

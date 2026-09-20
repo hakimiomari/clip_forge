@@ -35,6 +35,8 @@ export interface EditingPlan {
   };
   /** Advanced range-targeted effects (slow motion, color grades, trails…) */
   rangeEffects?: RangeEffect[];
+  /** Like/Follow call-to-action banner burned into the render */
+  cta?: PlanCta;
 }
 
 // ── Advanced range effects ───────────────────────────────
@@ -210,6 +212,21 @@ export interface PlanCaptions {
 }
 
 export type VoiceEffect = "none" | "telephone" | "echo" | "robot";
+
+export type CtaTiming = "start" | "middle" | "end" | "always" | "custom";
+
+export interface PlanCta {
+  enabled: boolean;
+  /** e.g. "LIKE" — rendered with a ♥ */
+  likeText: string;
+  /** e.g. "FOLLOW" or "SUBSCRIBE" — rendered with a ► */
+  followText: string;
+  timing: CtaTiming;
+  /** Exact window (seconds, output time) when timing = "custom" */
+  customStart?: number;
+  customEnd?: number;
+  position: "top" | "bottom";
+}
 
 export interface PlanAudio {
   /** Gain on the original audio: 0–3 (1 = normal, 2 = double) */

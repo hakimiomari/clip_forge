@@ -31,6 +31,8 @@ export interface RenderSpec {
   fillFrame?: boolean;
   zoom: boolean;
   assPath?: string; // burned captions when present
+  /** Like/Follow banner track (separate ASS, burned after captions) */
+  ctaAssPath?: string;
   hasAudio: boolean;
   watermarkText?: string;
   fps?: number;
@@ -195,6 +197,13 @@ export function buildFilterGraph(spec: RenderSpec): string {
       `[${label}]subtitles=filename='${escapeFilterPath(spec.assPath)}'[vsub]`,
     );
     label = "vsub";
+  }
+
+  if (spec.ctaAssPath) {
+    chains.push(
+      `[${label}]subtitles=filename='${escapeFilterPath(spec.ctaAssPath)}'[vcta]`,
+    );
+    label = "vcta";
   }
 
   const fadeOutStart = Math.max(0, outDur - 0.45).toFixed(2);

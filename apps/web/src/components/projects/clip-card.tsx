@@ -256,6 +256,16 @@ function ClipEditor({
   const [voiceEnhance, setVoiceEnhance] = useState(planAudio?.voiceEnhance ?? false);
   const [voiceEffect, setVoiceEffect] = useState(planAudio?.voiceEffect ?? "none");
   const [normalize, setNormalize] = useState(planAudio?.normalize ?? true);
+  const planCta = clip.editingPlan?.cta;
+  const [ctaEnabled, setCtaEnabled] = useState(planCta?.enabled ?? true);
+  const [ctaLike, setCtaLike] = useState(planCta?.likeText ?? "LIKE");
+  const [ctaFollow, setCtaFollow] = useState(planCta?.followText ?? "FOLLOW");
+  const [ctaTiming, setCtaTiming] = useState(planCta?.timing ?? "middle");
+  const [ctaStart, setCtaStart] = useState(String(planCta?.customStart ?? 0));
+  const [ctaEnd, setCtaEnd] = useState(
+    String(planCta?.customEnd ?? Math.round(clip.duration ?? 30)),
+  );
+  const [ctaPosition, setCtaPosition] = useState(planCta?.position ?? "top");
   const [error, setError] = useState<string | null>(null);
 
   const save = useMutation({
@@ -278,6 +288,16 @@ function ClipEditor({
             voiceEnhance,
             voiceEffect,
             normalize,
+          },
+          cta: {
+            enabled: ctaEnabled,
+            likeText: ctaLike,
+            followText: ctaFollow,
+            timing: ctaTiming,
+            position: ctaPosition,
+            ...(ctaTiming === "custom"
+              ? { customStart: Number(ctaStart) || 0, customEnd: Number(ctaEnd) || 5 }
+              : {}),
           },
         },
       });
@@ -464,6 +484,88 @@ function ClipEditor({
             <option value="robot">Robot</option>
           </select>
         </div>
+      </div>
+
+      <div className="space-y-3 rounded-lg border border-border bg-surface p-3">
+        <label className="flex cursor-pointer items-center gap-2 text-sm font-semibold">
+          <input
+            type="checkbox"
+            checked={ctaEnabled}
+            onChange={(e) => setCtaEnabled(e.target.checked)}
+            className="h-4 w-4 accent-[#6d5cff]"
+          />
+          ♥ Like &amp; Follow banner
+        </label>
+        {ctaEnabled && (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Like text</Label>
+                <Input
+                  value={ctaLike}
+                  onChange={(e) => setCtaLike(e.target.value)}
+                  maxLength={20}
+                  className="h-9"
+                />
+              </div>
+              <div>
+                <Label>Follow text</Label>
+                <Input
+                  value={ctaFollow}
+                  onChange={(e) => setCtaFollow(e.target.value)}
+                  maxLength={20}
+                  placeholder="FOLLOW or SUBSCRIBE"
+                  className="h-9"
+                />
+              </div>
+              <div>
+                <Label>When</Label>
+                <select
+                  value={ctaTiming}
+                  onChange={(e) => setCtaTiming(e.target.value)}
+                  className="h-9 w-full rounded-lg border border-border bg-surface-raised px-2 text-sm"
+                >
+                  <option value="start">Start (first ~5s)</option>
+                  <option value="middle">Middle (~4s)</option>
+                  <option value="end">End (last ~5s)</option>
+                  <option value="always">Whole clip</option>
+                  <option value="custom">Custom window…</option>
+                </select>
+              </div>
+              <div>
+                <Label>Where</Label>
+                <select
+                  value={ctaPosition}
+                  onChange={(e) => setCtaPosition(e.target.value)}
+                  className="h-9 w-full rounded-lg border border-border bg-surface-raised px-2 text-sm"
+                >
+                  <option value="top">Top</option>
+                  <option value="bottom">Bottom (above captions)</option>
+                </select>
+              </div>
+            </div>
+            {ctaTiming === "custom" && (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Show from (s)</Label>
+                  <Input
+                    value={ctaStart}
+                    onChange={(e) => setCtaStart(e.target.value)}
+                    className="h-9"
+                  />
+                </div>
+                <div>
+                  <Label>Until (s)</Label>
+                  <Input
+                    value={ctaEnd}
+                    onChange={(e) => setCtaEnd(e.target.value)}
+                    className="h-9"
+                  />
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </div>
       <FieldError message={error ?? undefined} />
       <div className="flex gap-2">

@@ -39,6 +39,15 @@ export interface ClipDetailResponse {
     rangeEffects?: Array<Record<string, unknown>>;
     background?: { type: string } | null;
     captions?: { enabled: boolean; style: string };
+    cta?: {
+      enabled: boolean;
+      likeText?: string;
+      followText?: string;
+      timing?: string;
+      customStart?: number;
+      customEnd?: number;
+      position?: string;
+    };
     audio?: {
       originalVolume?: number;
       pitchSemitones?: number;
