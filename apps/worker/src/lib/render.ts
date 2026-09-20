@@ -159,9 +159,13 @@ export function buildFilterGraph(spec: RenderSpec): string {
     ) && spec.glowSpritePath;
     const maskIdx = 1 + (hasTrailInput ? 1 : 0);
     // Cut the subject out via alphamerge with the AI mask, then place it
-    // over the chosen replacement background.
+    // over the chosen replacement background. Only blur mode needs a
+    // second copy of the source for the background.
+    const needsSourceBg = spec.backgroundRemoval.replace !== "color";
     chains.push(
-      `[${vIn}]fps=30,split=2[bra][brb]`,
+      needsSourceBg
+        ? `[${vIn}]fps=30,split=2[bra][brb]`
+        : `[${vIn}]fps=30[bra]`,
       `[${maskIdx}:v][bra]scale2ref[brm][bras]`,
       `[bras][brm]alphamerge[cut]`,
     );

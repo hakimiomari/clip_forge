@@ -60,7 +60,10 @@ export function postprocessMask(
 }
 
 export async function ensureModel(): Promise<string> {
-  const dir = path.resolve(process.cwd(), "../../.models");
+  // cwd-independent cache: env override, else <home>/.clipforge/models
+  const dir =
+    process.env.MODELS_DIR?.trim() ||
+    path.join(process.env.USERPROFILE ?? process.env.HOME ?? ".", ".clipforge", "models");
   const file = path.join(dir, "u2netp.onnx");
   if (existsSync(file)) return file;
   await mkdir(dir, { recursive: true });
@@ -112,6 +115,19 @@ export async function generateMaskVideo(options: {
   let stderr = "";
   child.stderr.on("data", (d: Buffer) => (stderr += d.toString().slice(-4000)));
 
+  // Attach exit handlers BEFORE consuming stdout: 'close' fires as soon
+  // as the stream ends, and a listener added afterwards never resolves.
+  const exit = new Promise<void>((resolve, reject) => {
+    child.on("error", (err) =>
+      reject(new Error(`frame extraction failed to start: ${err.message}`)),
+    );
+    child.on("close", (code) =>
+      code === 0
+        ? resolve()
+        : reject(new Error(`frame extraction failed: ${stderr.slice(-400)}`)),
+    );
+  });
+
   const out = createWriteStream(options.outPath);
   let pending: Buffer = Buffer.alloc(0);
   let frames = 0;
@@ -137,14 +153,8 @@ export async function generateMaskVideo(options: {
     }
   }
 
-  await new Promise<void>((resolve, reject) => {
-    child.on("close", (code) =>
-      code === 0
-        ? resolve()
-        : reject(new Error(`frame extraction failed: ${stderr.slice(-400)}`)),
-    );
-  });
-  await new Promise<void>((resolve) => out.end(resolve));
+  await exit;
+  await new Promise<void>((resolve) => out.end(() => resolve()));
   if (frames === 0) throw new Error("Background removal produced no frames");
   return frames;
 }
