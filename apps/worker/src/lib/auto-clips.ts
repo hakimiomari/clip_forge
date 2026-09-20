@@ -1,6 +1,8 @@
 import { getPrismaClient } from "@clipforge/database";
 import type { Prisma } from "@clipforge/database";
 import {
+  buildClipDescription,
+  buildClipTitle,
   buildEditingPlan,
   EDITING_PLAN_VERSION,
   type AutoClipOptions,
@@ -36,6 +38,9 @@ export async function createAutoClips(args: {
   options: AutoClipOptions;
   creditsPerClip: number;
   transcript: TranscriptSegmentLite[];
+  /** Source details for the ready-to-post caption */
+  sourceTitle?: string | null;
+  sourceUrl?: string | null;
 }): Promise<number> {
   const prisma = getPrismaClient();
   let created = 0;
@@ -52,6 +57,15 @@ export async function createAutoClips(args: {
       ctaEnabled: args.options.ctaEnabled,
     });
     const duration = highlight.end - highlight.start;
+    const metadata = {
+      sourceTitle: args.sourceTitle,
+      sourceUrl: args.sourceUrl,
+      parts,
+      spokenLines: args.transcript
+        .filter((s) => s.startTime < highlight.end && s.endTime > highlight.start)
+        .map((s) => s.text),
+      highlightTitle: highlight.title,
+    };
 
     // One transaction per short: a failure leaves the others intact
     const { clipId, renderJobId } = await prisma.$transaction(async (tx) => {
@@ -59,7 +73,8 @@ export async function createAutoClips(args: {
         data: {
           projectId: args.projectId,
           highlightId: highlight.highlightId,
-          name: highlight.title ?? "Clip",
+          name: buildClipTitle(metadata),
+          description: buildClipDescription(metadata),
           status: "RENDER_QUEUED",
           format: args.format,
           resolution: plan.resolution,

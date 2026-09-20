@@ -30,6 +30,8 @@ export interface ClipDetailResponse {
   id: string;
   projectId: string;
   name: string | null;
+  /** Ready-to-post caption built from the clip's transcript + source */
+  description: string | null;
   status: string;
   format: string | null;
   resolution: string | null;
@@ -43,6 +45,12 @@ export interface ClipDetailResponse {
       enabled: boolean;
       replace?: string;
       color?: string;
+    };
+    cartoon?: {
+      enabled: boolean;
+      style?: string;
+      fps?: number;
+      quality?: string;
     };
     cta?: {
       enabled: boolean;

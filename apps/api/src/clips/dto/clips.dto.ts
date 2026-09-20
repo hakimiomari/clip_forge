@@ -5,6 +5,8 @@ import {
   IsArray,
   IsBoolean,
   IsEnum,
+  IsIn,
+  IsInt,
   IsNumber,
   IsOptional,
   IsString,
@@ -174,6 +176,39 @@ export class BackgroundRemovalDto {
   color?: string;
 }
 
+/** AI cartoon / anime stylization of the footage. */
+export class CartoonDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  enabled?: boolean;
+
+  @ApiPropertyOptional({ enum: ["hayao", "shinkai"], default: "hayao" })
+  @IsOptional()
+  @IsIn(["hayao", "shinkai"])
+  style?: "hayao" | "shinkai";
+
+  @ApiPropertyOptional({
+    description: "Frames per second to stylize at (8–30); 12 reads as hand-drawn",
+    default: 12,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(8)
+  @Max(30)
+  fps?: number;
+
+  @ApiPropertyOptional({
+    enum: ["standard", "high"],
+    default: "high",
+    description: "high = stylize at export resolution (sharper, slower)",
+  })
+  @IsOptional()
+  @IsIn(["standard", "high"])
+  quality?: "standard" | "high";
+}
+
 export class CreateClipDto {
   @ApiPropertyOptional({ example: "The biggest mistake" })
   @IsOptional()
@@ -223,6 +258,12 @@ export class CreateClipDto {
   @Min(-30)
   @Max(30)
   trimEndDelta?: number;
+
+  @ApiPropertyOptional({ type: CartoonDto, description: "Cartoon-style the footage" })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => CartoonDto)
+  cartoon?: CartoonDto;
 }
 
 /** One part of a stitched clip. */
@@ -278,6 +319,12 @@ export class UpdateClipDto {
   @IsString()
   @MaxLength(120)
   name?: string;
+
+  @ApiPropertyOptional({ description: "Caption to post with the clip" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(5000)
+  description?: string;
 
   @ApiPropertyOptional({ enum: BackgroundMode })
   @IsOptional()
@@ -335,4 +382,10 @@ export class UpdateClipDto {
   @ValidateNested()
   @Type(() => BackgroundRemovalDto)
   backgroundRemoval?: BackgroundRemovalDto;
+
+  @ApiPropertyOptional({ type: CartoonDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => CartoonDto)
+  cartoon?: CartoonDto;
 }

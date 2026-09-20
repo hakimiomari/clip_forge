@@ -3,7 +3,9 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Copy,
   Download,
+  FileText,
   Loader2,
   Pencil,
   RefreshCcw,
@@ -60,16 +62,34 @@ export function ClipCard({
     onError: (e) => setError(e instanceof ApiError ? e.message : String(e)),
   });
 
+  const saveFile = (href: string, fileName: string) => {
+    const a = document.createElement("a");
+    a.href = href;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
+  /**
+   * Saves the MP4 and, next to it, a text file holding the title and
+   * description — so the caption travels with the video instead of
+   * having to be copied out of the app separately.
+   */
   const handleDownload = async () => {
     setError(null);
     try {
       const link = await api<DownloadLink>(`/clips/${clipId}/download`);
-      const a = document.createElement("a");
-      a.href = link.downloadUrl;
-      a.download = link.fileName;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+      saveFile(link.downloadUrl, link.fileName);
+
+      if (link.title || link.description) {
+        const caption = `${link.title}\n\n${link.description}\n`;
+        const blob = new Blob([caption], { type: "text/plain;charset=utf-8" });
+        const blobUrl = URL.createObjectURL(blob);
+        saveFile(blobUrl, link.fileName.replace(/\.mp4$/i, "") + ".txt");
+        // Let the download start before the object URL is torn down
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 10_000);
+      }
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     }
@@ -131,11 +151,17 @@ export function ClipCard({
 
           <FieldError message={error ?? undefined} />
 
+          {clip.description && <PostDetails clip={clip} />}
+
           <div className="mt-3 flex flex-wrap gap-2">
             {clip.status === "RENDERED" && (
-              <Button size="sm" onClick={handleDownload}>
+              <Button
+                size="sm"
+                onClick={handleDownload}
+                title="Saves the video and a .txt with its title and description"
+              >
                 <Download className="h-4 w-4" />
-                Download MP4
+                Download MP4 + caption
               </Button>
             )}
             {!isActive && (
@@ -222,6 +248,77 @@ export function ClipCard({
   );
 }
 
+/**
+ * Title and caption to paste where the short is posted. Built from the
+ * clip's own transcript and source video, so it states only what is
+ * actually in the clip.
+ */
+function PostDetails({ clip }: { clip: ClipDetailResponse }) {
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState<"title" | "description" | null>(null);
+
+  const copy = async (what: "title" | "description", text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(what);
+      setTimeout(() => setCopied(null), 1500);
+    } catch {
+      // Clipboard needs a secure context; the text is on screen to select
+    }
+  };
+
+  return (
+    <div className="mt-3 rounded-lg border border-border bg-surface">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium hover:text-foreground"
+        aria-expanded={open}
+      >
+        <FileText className="h-4 w-4 text-muted" />
+        Title &amp; description for posting
+        <span className="ml-auto text-xs text-muted">{open ? "Hide" : "Show"}</span>
+      </button>
+      {open && (
+        <div className="space-y-3 border-t border-border px-3 py-3">
+          <div>
+            <div className="mb-1 flex items-center justify-between">
+              <Label className="mb-0">Title</Label>
+              <Button size="sm" variant="ghost" onClick={() => copy("title", clip.name ?? "")}>
+                <Copy className="h-3.5 w-3.5" />
+                {copied === "title" ? "Copied" : "Copy"}
+              </Button>
+            </div>
+            <p className="rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm">
+              {clip.name}
+            </p>
+          </div>
+          <div>
+            <div className="mb-1 flex items-center justify-between">
+              <Label className="mb-0">Description</Label>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => copy("description", clip.description ?? "")}
+              >
+                <Copy className="h-3.5 w-3.5" />
+                {copied === "description" ? "Copied" : "Copy"}
+              </Button>
+            </div>
+            <pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-surface-raised px-3 py-2 font-sans text-sm text-muted-strong">
+              {clip.description}
+            </pre>
+          </div>
+          <p className="text-xs text-muted">
+            Taken from what is said in the clip and the source video — edit it
+            in the clip editor if you want different wording.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ClipEditor({
   clip,
   onSaved,
@@ -230,6 +327,7 @@ function ClipEditor({
   onSaved: () => void;
 }) {
   const [name, setName] = useState(clip.name ?? "");
+  const [description, setDescription] = useState(clip.description ?? "");
   const [format, setFormat] = useState(clip.format ?? "vertical");
   const [captionsEnabled, setCaptionsEnabled] = useState(
     clip.editingPlan?.captions?.enabled ?? true,
@@ -260,6 +358,11 @@ function ClipEditor({
   const [bgRemovalEnabled, setBgRemovalEnabled] = useState(planBg?.enabled ?? false);
   const [bgReplace, setBgReplace] = useState(planBg?.replace ?? "blur");
   const [bgColor, setBgColor] = useState(planBg?.color ?? "0b0d12");
+  const planCartoon = clip.editingPlan?.cartoon;
+  const [cartoonEnabled, setCartoonEnabled] = useState(planCartoon?.enabled ?? false);
+  const [cartoonStyle, setCartoonStyle] = useState(planCartoon?.style ?? "hayao");
+  const [cartoonFps, setCartoonFps] = useState(String(planCartoon?.fps ?? 12));
+  const [cartoonQuality, setCartoonQuality] = useState(planCartoon?.quality ?? "high");
   const planCta = clip.editingPlan?.cta;
   const [ctaEnabled, setCtaEnabled] = useState(planCta?.enabled ?? true);
   const [ctaLike, setCtaLike] = useState(planCta?.likeText ?? "LIKE");
@@ -278,6 +381,7 @@ function ClipEditor({
         method: "PATCH",
         body: {
           name: name || undefined,
+          description,
           format,
           captionsEnabled,
           captionStyle,
@@ -297,6 +401,12 @@ function ClipEditor({
             enabled: bgRemovalEnabled,
             replace: bgReplace,
             ...(bgReplace === "color" ? { color: bgColor } : {}),
+          },
+          cartoon: {
+            enabled: cartoonEnabled,
+            style: cartoonStyle,
+            fps: Number(cartoonFps) || 12,
+            quality: cartoonQuality,
           },
           cta: {
             enabled: ctaEnabled,
@@ -321,12 +431,27 @@ function ClipEditor({
   return (
     <div className="mt-4 space-y-3 rounded-lg border border-border bg-surface-raised p-4">
       <div>
-        <Label htmlFor={`clip-name-${clip.id}`}>Clip name</Label>
+        <Label htmlFor={`clip-name-${clip.id}`}>Title</Label>
         <Input
           id={`clip-name-${clip.id}`}
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
+      </div>
+      <div>
+        <Label htmlFor={`clip-desc-${clip.id}`}>Description (for posting)</Label>
+        <textarea
+          id={`clip-desc-${clip.id}`}
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          rows={6}
+          className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+          placeholder="What happens in this clip, where it came from, hashtags…"
+        />
+        <p className="mt-1 text-xs text-muted">
+          Written from the clip&apos;s own transcript and the source video, not
+          generated copy. Edit freely — it is saved as you left it.
+        </p>
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div>
@@ -493,6 +618,66 @@ function ClipEditor({
             <option value="robot">Robot</option>
           </select>
         </div>
+      </div>
+
+      <div className="space-y-3 rounded-lg border border-border bg-surface p-3">
+        <label className="flex cursor-pointer items-center gap-2 text-sm font-semibold">
+          <input
+            type="checkbox"
+            checked={cartoonEnabled}
+            onChange={(e) => setCartoonEnabled(e.target.checked)}
+            className="h-4 w-4 accent-primary"
+          />
+          🎨 Cartoon style (AI)
+        </label>
+        {cartoonEnabled && (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Look</Label>
+                <select
+                  value={cartoonStyle}
+                  onChange={(e) => setCartoonStyle(e.target.value)}
+                  className="h-9 w-full rounded-lg border border-border bg-surface-raised px-2 text-sm"
+                >
+                  <option value="hayao">Soft anime (Ghibli-like)</option>
+                  <option value="shinkai">Vivid anime (high contrast)</option>
+                </select>
+              </div>
+              <div>
+                <Label>Animation rate</Label>
+                <select
+                  value={cartoonFps}
+                  onChange={(e) => setCartoonFps(e.target.value)}
+                  className="h-9 w-full rounded-lg border border-border bg-surface-raised px-2 text-sm"
+                >
+                  <option value="8">8 fps — most hand-drawn</option>
+                  <option value="12">12 fps — classic animation</option>
+                  <option value="24">24 fps — smooth (slower)</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <Label>Detail</Label>
+              <select
+                value={cartoonQuality}
+                onChange={(e) => setCartoonQuality(e.target.value)}
+                className="h-9 w-full rounded-lg border border-border bg-surface-raised px-2 text-sm"
+              >
+                <option value="high">
+                  High — drawn at full export size (sharpest)
+                </option>
+                <option value="standard">Standard — 512px draft (≈4x faster)</option>
+              </select>
+            </div>
+            <p className="text-xs text-warning">
+              Redraws every frame with a local AI model. At High detail expect
+              roughly 1½ minutes per 10s of clip at 12 fps; Standard is a quick
+              draft. Captions and the banner stay sharp on top either way.
+              Can&apos;t be combined with background removal.
+            </p>
+          </>
+        )}
       </div>
 
       <div className="space-y-3 rounded-lg border border-border bg-surface p-3">

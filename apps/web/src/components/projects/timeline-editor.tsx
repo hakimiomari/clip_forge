@@ -94,6 +94,7 @@ export function TimelineEditor({
   const [zoomEffect, setZoomEffect] = useState(true);
   const [backgroundMode, setBackgroundMode] = useState("blur");
   const [ctaEnabled, setCtaEnabled] = useState(true);
+  const [cartoonEnabled, setCartoonEnabled] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const dragRef = useRef<{ mode: DragMode; grabOffset: number } | null>(null);
@@ -301,6 +302,9 @@ export function TimelineEditor({
           zoomEnabled: zoomEffect,
           backgroundMode,
           ctaEnabled,
+          ...(cartoonEnabled
+            ? { cartoon: { enabled: true, style: "hayao", fps: 12 } }
+            : {}),
         },
       }),
     onSuccess: () => {
@@ -783,6 +787,18 @@ export function TimelineEditor({
               className="h-4 w-4 accent-primary"
             />
             ♥ Like &amp; Follow banner
+          </label>
+          <label
+            className="flex cursor-pointer items-center gap-2"
+            title="Redraws every frame as anime with a local AI model — slower render"
+          >
+            <input
+              type="checkbox"
+              checked={cartoonEnabled}
+              onChange={(e) => setCartoonEnabled(e.target.checked)}
+              className="h-4 w-4 accent-primary"
+            />
+            🎨 Cartoon style
           </label>
           <label className="flex items-center gap-2">
             <span className="text-muted">Background:</span>

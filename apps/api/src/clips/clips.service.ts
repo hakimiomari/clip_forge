@@ -5,6 +5,8 @@ import {
 } from "@nestjs/common";
 import type { Prisma } from "@clipforge/database";
 import {
+  buildClipDescription,
+  buildClipTitle,
   buildEditingPlan,
   CLIP_RESOLUTIONS,
   EDITING_PLAN_VERSION,
@@ -14,6 +16,7 @@ import {
   type ClipPart,
   type DownloadLink,
   type EditingPlan,
+  type PlanCartoon,
   type VideoFormat,
 } from "@clipforge/shared-types";
 import { hasProcessableMedia } from "../common/media-source";
@@ -24,6 +27,7 @@ import { UsageService } from "../usage/usage.service";
 import { HighlightsService } from "../highlights/highlights.service";
 import { ProjectsService } from "../projects/projects.service";
 import {
+  CartoonDto,
   CreateClipDto,
   CreateClipFromRangeDto,
   UpdateClipDto,
@@ -199,13 +203,34 @@ export class ClipsService {
       zoomEnabled: dto.zoomEnabled,
       backgroundMode: dto.backgroundMode ?? "blur",
       ctaEnabled: dto.ctaEnabled ?? true,
+      cartoon: normalizeCartoon(dto.cartoon),
     });
+
+    // Spoken lines inside the window, for a caption built from facts
+    const spokenLines = await this.spokenLinesForParts(projectId, parts);
+    const source = await this.prisma.videoSource.findUnique({
+      where: { projectId },
+      select: { title: true },
+    });
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { sourceUrl: true },
+    });
+    const metadata = {
+      sourceTitle: source?.title,
+      sourceUrl: project?.sourceUrl,
+      parts,
+      spokenLines,
+      highlightTitle: fallbackName,
+      clipName: dto.name?.trim() || null,
+    };
 
     const clip = await this.prisma.clip.create({
       data: {
         projectId,
         highlightId,
-        name: dto.name?.trim() || fallbackName || "Clip",
+        name: buildClipTitle(metadata),
+        description: buildClipDescription(metadata),
         status: "DRAFT",
         format: dto.format,
         resolution: plan.resolution,
@@ -217,6 +242,28 @@ export class ClipsService {
     });
     await this.syncCaptionsFromTranscript(clip.id, projectId, parts);
     return this.render(clip.id, userId);
+  }
+
+  /** The words actually spoken inside the clip's windows, in order. */
+  private async spokenLinesForParts(
+    projectId: string,
+    parts: ClipPart[],
+  ): Promise<string[]> {
+    const transcript = await this.prisma.transcript.findUnique({
+      where: { projectId },
+      include: {
+        segments: {
+          where: {
+            OR: parts.map((p) => ({
+              startTime: { lt: p.end },
+              endTime: { gt: p.start },
+            })),
+          },
+          orderBy: { index: "asc" },
+        },
+      },
+    });
+    return (transcript?.segments ?? []).map((s) => s.text);
   }
 
   /**
@@ -341,6 +388,7 @@ export class ClipsService {
       projectId: clip.projectId,
       highlightId: clip.highlightId,
       name: clip.name,
+      description: clip.description,
       status: clip.status,
       format: clip.format,
       resolution: clip.resolution,
@@ -457,6 +505,26 @@ export class ClipsService {
     }
     newPlan.backgroundRemoval = mergedBgRemoval;
 
+    // Cartoon stylization (edit-time): preserve + apply overrides
+    const mergedCartoon: PlanCartoon = {
+      enabled: false,
+      style: "hayao",
+      fps: 12,
+      quality: "high",
+      ...plan.cartoon,
+      ...(dto.cartoon
+        ? Object.fromEntries(
+            Object.entries(dto.cartoon).filter(([, v]) => v !== undefined),
+          )
+        : {}),
+    };
+    if (mergedCartoon.enabled && mergedBgRemoval.enabled) {
+      throw new BadRequestException(
+        "Cartoon style and AI background removal both redraw the footage — turn one off",
+      );
+    }
+    newPlan.cartoon = mergedCartoon.enabled ? mergedCartoon : undefined;
+
     // Preserve existing CTA settings, then layer the new ones on top
     newPlan.cta = {
       ...(newPlan.cta as NonNullable<EditingPlan["cta"]>),
@@ -539,6 +607,10 @@ export class ClipsService {
       where: { id: clipId },
       data: {
         name: dto.name?.trim() || clip.name,
+        // The caption is the user's to edit; only replace it when they send one
+        ...(dto.description !== undefined
+          ? { description: dto.description.trim() || null }
+          : {}),
         status: "EDITING",
         format,
         resolution: newPlan.resolution,
@@ -587,7 +659,7 @@ export class ClipsService {
   }
 
   async download(clipId: string, userId: string): Promise<DownloadLink> {
-    await this.getOwned(clipId, userId);
+    const clip = await this.getOwned(clipId, userId);
     const latest = await this.prisma.export.findFirst({
       where: { clipId },
       orderBy: { createdAt: "desc" },
@@ -606,6 +678,10 @@ export class ClipsService {
       fileName: latest.fileName,
       downloadUrl,
       expiresIn: 3600,
+      // Sent with the link so the caption is saved next to the video and
+      // always reflects the latest edit, even without a re-render
+      title: clip.name ?? "",
+      description: clip.description ?? "",
     };
   }
 
@@ -653,4 +729,17 @@ export class ClipsService {
 
 function clampTime(x: number, min: number, max: number): number {
   return Math.round(Math.max(min, Math.min(max, x)) * 10) / 10;
+}
+
+/** Fills in cartoon defaults; `undefined` leaves the footage untouched. */
+function normalizeCartoon(
+  cartoon: CartoonDto | undefined,
+): PlanCartoon | undefined {
+  if (!cartoon?.enabled) return undefined;
+  return {
+    enabled: true,
+    style: cartoon.style ?? "hayao",
+    fps: cartoon.fps ?? 12,
+    quality: cartoon.quality ?? "high",
+  };
 }

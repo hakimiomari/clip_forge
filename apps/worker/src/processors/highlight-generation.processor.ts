@@ -320,6 +320,8 @@ export async function processHighlightGeneration(
         },
         creditsPerClip: perClip,
         transcript: segments,
+        sourceTitle: source.title,
+        sourceUrl: project.sourceUrl,
       });
     }
   } catch (err) {

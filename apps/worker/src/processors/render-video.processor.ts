@@ -16,9 +16,24 @@ import { buildTimeMap } from "../lib/time-map";
 import { createGlowSprite } from "../lib/effects";
 import { buildCtaAss } from "../lib/cta";
 import { generateMaskVideo } from "../lib/bg-removal";
+import { CARTOON_LONG_EDGE, stylizeVideo } from "../lib/cartoon";
 
 /** Burned into every free-plan render, top-centre. */
 const WATERMARK_TEXT = "Powerd by CricPulse";
+
+/**
+ * How large to stylize.
+ *
+ * The footage is scaled to the export's *width* (with blurred bars
+ * filling the rest on a vertical frame), so that width — not the frame's
+ * long edge — is the size the stylized pixels are actually shown at.
+ * Going bigger is wasted work; going smaller means an upscale that
+ * softens every edge the model just drew.
+ */
+function cartoonLongEdge(plan: EditingPlan): number {
+  const exportWidth = Number(plan.resolution.split("x")[0]) || 1080;
+  return Math.min(CARTOON_LONG_EDGE[plan.cartoon?.quality ?? "high"], exportWidth);
+}
 
 /**
  * render-video: Rendering Agent + Quality Control Agent.
@@ -137,7 +152,42 @@ export async function processRenderVideo(job: Job<RenderVideoJob>): Promise<void
       inputPath = joinedPath;
       renderStart = 0;
     }
-    const renderEnd = renderStart + duration;
+    let renderEnd = renderStart + duration;
+
+    // ── Cartoon stylization ──────────────────────────────
+    // Runs before the layout so captions, the banner and the watermark
+    // stay crisp on top of stylized footage. The result is an ordinary
+    // video file, so every later step is unchanged.
+    if (plan.cartoon?.enabled) {
+      const probe = await probeVideo(inputPath);
+      await updateRenderJob({ progress: 8, step: "Drawing cartoon frames (AI)" });
+      await emit(8, "Drawing cartoon frames (AI)");
+      const cartoonPath = work.file("cartoon.mp4");
+      await stylizeVideo({
+        inputPath,
+        start: renderStart,
+        duration,
+        outPath: cartoonPath,
+        style: plan.cartoon.style,
+        fps: plan.cartoon.fps,
+        // Cap at the export's own resolution: stylizing larger than the
+        // frame it lands in is wasted work
+        longEdge: cartoonLongEdge(plan),
+        sourceWidth: probe.width ?? 1280,
+        sourceHeight: probe.height ?? 720,
+        hasAudio: probe.hasAudio,
+        onProgress: (fraction) => {
+          const pct = 8 + Math.round(fraction * 30);
+          void updateRenderJob({ progress: pct, step: "Drawing cartoon frames (AI)" }).catch(
+            () => undefined,
+          );
+          void emit(pct, "Drawing cartoon frames (AI)");
+        },
+      });
+      inputPath = cartoonPath;
+      renderStart = 0;
+      renderEnd = duration;
+    }
 
     // Captions → ASS file
     let assPath: string | undefined;
@@ -210,6 +260,7 @@ export async function processRenderVideo(job: Job<RenderVideoJob>): Promise<void
       rangeEffects: effectiveEffects,
       glowSpritePath,
       audio: plan.audio,
+      metadata: { title: clip.name, description: clip.description },
     };
 
     // AI subject cut-out: generate the per-frame mask before rendering
@@ -241,7 +292,8 @@ export async function processRenderVideo(job: Job<RenderVideoJob>): Promise<void
 
     await emit(8, "Rendering video");
     let lastPersist = 0;
-    const progressBase = bgRemoval ? 38 : 8;
+    // Cartoon and background removal each own the first stretch of the bar
+    const progressBase = bgRemoval || plan.cartoon?.enabled ? 38 : 8;
     const onProgress = (fraction: number) => {
       const pct = Math.min(95, progressBase + Math.round(fraction * (95 - progressBase)));
       const now = Date.now();

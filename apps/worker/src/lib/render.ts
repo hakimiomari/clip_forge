@@ -44,6 +44,11 @@ export interface RenderSpec {
   /** Voice/audio controls (volume, pitch, EQ, effects) from the plan */
   audio?: Partial<PlanAudio>;
   /**
+   * Written into the MP4's own tags, so the caption travels with the
+   * file rather than living only in the app.
+   */
+  metadata?: { title?: string | null; description?: string | null };
+  /**
    * Filter/encoder thread cap. Each thread holds extra full-resolution
    * frame buffers, so this is the main lever when memory is tight.
    */
@@ -299,6 +304,31 @@ export function buildFilterGraph(spec: RenderSpec): string {
   return chains.join(";");
 }
 
+/**
+ * MP4 tags for the clip's caption. Values are passed as their own argv
+ * entries (never interpolated into a command line), so quotes and
+ * newlines in a description are safe; ffmpeg rejects a NUL byte, which
+ * is the one character stripped.
+ */
+export function buildMetadataArgs(
+  metadata: RenderSpec["metadata"],
+): string[] {
+  if (!metadata) return [];
+  const clean = (value: string | null | undefined) =>
+    value ? value.replace(/\0/g, "").trim() : "";
+  const args: string[] = [];
+  const title = clean(metadata.title);
+  const description = clean(metadata.description);
+  if (title) args.push("-metadata", `title=${title}`);
+  if (description) {
+    // Players and platforms disagree on which tag they read, so write
+    // the common ones rather than betting on one
+    args.push("-metadata", `comment=${description}`);
+    args.push("-metadata", `description=${description}`);
+  }
+  return args;
+}
+
 export function buildRenderArgs(spec: RenderSpec): string[] {
   const dur = clipDuration(spec);
   const args = [
@@ -348,6 +378,7 @@ export function buildRenderArgs(spec: RenderSpec): string[] {
     "-x264-params", "sync-lookahead=0:rc-lookahead=20",
     "-max_muxing_queue_size", "256",
     "-r", String(spec.fps ?? 30),
+    ...buildMetadataArgs(spec.metadata),
     "-movflags", "+faststart",
     "-y",
     spec.outputPath,
