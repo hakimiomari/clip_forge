@@ -33,6 +33,16 @@ const PROCESSING_STATUSES = [
   "RENDERING",
 ];
 
+/** Official YouTube player URL for a YouTube-sourced project, else null. */
+function youtubeEmbedUrl(project: {
+  sourceUrl: string | null;
+  source: { sourceType: string } | null;
+}): string | null {
+  if (project.source?.sourceType !== "YOUTUBE" || !project.sourceUrl) return null;
+  const id = new URL(project.sourceUrl).searchParams.get("v");
+  return id ? `https://www.youtube.com/embed/${id}` : null;
+}
+
 export default function ProjectDetailPage({
   params,
 }: {
@@ -71,10 +81,8 @@ export default function ProjectDetailPage({
   const isProcessing = PROCESSING_STATUSES.includes(project.status);
   const showProgress =
     isProcessing && progress && !progress.clipId && progress.status === project.status;
-  const canGenerate =
-    project.source?.sourceType === "UPLOAD" &&
-    project.source?.duration != null &&
-    !isProcessing;
+  // Duration is only set once media has been imported (upload or YouTube download)
+  const canGenerate = project.source?.duration != null && !isProcessing;
 
   const handleDelete = async () => {
     if (!window.confirm(`Delete "${project.name}" and all its files? This cannot be undone.`)) {
@@ -166,6 +174,15 @@ export default function ProjectDetailPage({
                 className="h-full w-full"
                 poster={project.source?.thumbnailUrl ?? undefined}
               />
+            ) : youtubeEmbedUrl(project) ? (
+              // YouTube media is never stored, so preview via the official player
+              <iframe
+                src={youtubeEmbedUrl(project)!}
+                title={project.source?.title ?? "YouTube video"}
+                className="h-full w-full"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+              />
             ) : project.source?.thumbnailUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
@@ -233,9 +250,7 @@ export default function ProjectDetailPage({
                 <CardTitle>AI highlights</CardTitle>
               </div>
               <CardDescription className="mt-2">
-                {project.source?.sourceType === "YOUTUBE"
-                  ? "YouTube sources import metadata only — upload a video file you are authorized to use to generate highlights."
-                  : "Highlights become available once a video file is imported."}
+                Highlights become available once the video has been imported.
               </CardDescription>
             </Card>
           )}

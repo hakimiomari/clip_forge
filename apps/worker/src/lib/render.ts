@@ -1,5 +1,6 @@
 import { spawn } from "child_process";
 import { FFMPEG } from "../env";
+import { track } from "./children";
 
 /**
  * FFmpeg render engine. Builds one filtergraph per clip:
@@ -129,7 +130,7 @@ export async function runRender(
   const dur = clipDuration(spec);
   const args = buildRenderArgs(spec);
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(FFMPEG, args, { windowsHide: true });
+    const child = track(spawn(FFMPEG, args, { windowsHide: true }));
     let stderr = "";
     let stdoutBuf = "";
     child.stdout.on("data", (d: Buffer) => {

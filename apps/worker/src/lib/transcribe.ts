@@ -1,6 +1,7 @@
 import { spawn } from "child_process";
 import { readFile, stat } from "fs/promises";
 import { env, FFMPEG } from "../env";
+import { track } from "./children";
 import type { TranscriptSegmentLite } from "./heuristics";
 
 /**
@@ -122,7 +123,7 @@ async function transcribeDeepgram(audioPath: string): Promise<TranscriptionResul
 
 function runFfmpeg(args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(FFMPEG, args, { windowsHide: true });
+    const child = track(spawn(FFMPEG, args, { windowsHide: true }));
     let stderr = "";
     child.stderr.on("data", (d: Buffer) => (stderr += d.toString()));
     child.on("error", reject);

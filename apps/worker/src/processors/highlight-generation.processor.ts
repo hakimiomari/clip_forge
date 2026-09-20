@@ -3,7 +3,57 @@ import { getPrismaClient } from "@clipforge/database";
 import type { HighlightGenerationJob } from "@clipforge/shared-types";
 import { CREDIT_COSTS } from "@clipforge/shared-types";
 import { analyzeMedia } from "../lib/analysis";
+import { extractAudio } from "../lib/ffmpeg";
 import { createWorkDir, fetchToWorkDir } from "../lib/media";
+import {
+  fetchYouTubeInfo,
+  fetchYouTubeTranscript,
+  resolveYouTubeStreams,
+} from "../lib/youtube";
+
+/** Replaces the project's transcript and its segments in one transaction. */
+async function saveTranscript(
+  projectId: string,
+  result: {
+    language: string | null;
+    provider: string;
+    segments: TranscriptSegmentLite[];
+  },
+): Promise<void> {
+  const prisma = getPrismaClient();
+  const fullText = result.segments.map((s) => s.text).join(" ");
+  await prisma.$transaction(async (tx) => {
+    const transcript = await tx.transcript.upsert({
+      where: { projectId },
+      create: {
+        projectId,
+        status: "COMPLETED",
+        language: result.language,
+        provider: result.provider,
+        fullText,
+      },
+      update: {
+        status: "COMPLETED",
+        language: result.language,
+        provider: result.provider,
+        fullText,
+        error: null,
+      },
+    });
+    await tx.transcriptSegment.deleteMany({ where: { transcriptId: transcript.id } });
+    if (result.segments.length > 0) {
+      await tx.transcriptSegment.createMany({
+        data: result.segments.map((s, index) => ({
+          transcriptId: transcript.id,
+          index,
+          startTime: s.startTime,
+          endTime: s.endTime,
+          text: s.text,
+        })),
+      });
+    }
+  });
+}
 import {
   selectHighlights,
   type HighlightCandidate,
@@ -34,9 +84,10 @@ export async function processHighlightGeneration(
     throw new Error(`Project ${projectId} not found for user`);
   }
   const source = project.source;
-  if (!source?.storageKey || !source.duration) {
+  const isYouTube = source?.sourceType === "YOUTUBE" && Boolean(source.externalId);
+  if (!source?.duration || (!source.storageKey && !isYouTube)) {
     throw new Error(
-      "This project has no processable media. Upload a video file to generate highlights.",
+      "This project has no processable media. Import a video to generate highlights.",
     );
   }
 
@@ -52,6 +103,17 @@ export async function processHighlightGeneration(
     });
     await emit("ANALYZING", 5, "Preparing analysis");
 
+    // Where analysis reads audio/video from: a local copy for uploads,
+    // or YouTube CDN streams read directly by ffmpeg (nothing stored).
+    let audioInput: string | null = null;
+    let videoInput: string | null = null;
+    if (isYouTube) {
+      await emit("ANALYZING", 8, "Connecting to YouTube");
+      const streams = await resolveYouTubeStreams(source.externalId!);
+      audioInput = streams.audioUrl;
+      videoInput = streams.videoUrl;
+    }
+
     let segments: TranscriptSegmentLite[] =
       project.transcript?.status === "COMPLETED"
         ? project.transcript.segments
@@ -59,45 +121,38 @@ export async function processHighlightGeneration(
             .map((s) => ({ startTime: s.startTime, endTime: s.endTime, text: s.text }))
         : [];
 
-    if (segments.length === 0 && transcriptionConfigured() && source.audioKey) {
-      await emit("ANALYZING", 12, "Transcribing audio");
+    // YouTube's own captions are free and usually good — try them first
+    if (segments.length === 0 && isYouTube) {
+      await emit("ANALYZING", 12, "Fetching YouTube transcript");
       try {
-        const audioPath = await fetchToWorkDir(work, source.audioKey, "audio");
+        const info = await fetchYouTubeInfo(source.externalId!);
+        if (info.captions) {
+          const result = await fetchYouTubeTranscript(source.externalId!, info.captions, work.dir);
+          if (result.segments.length > 0) {
+            segments = result.segments;
+            await saveTranscript(projectId, result);
+          }
+        }
+      } catch (err) {
+        console.warn(`YouTube captions unavailable, continuing: ${String(err).slice(0, 200)}`);
+      }
+    }
+
+    // Otherwise transcribe the audio when a provider is configured
+    if (segments.length === 0 && transcriptionConfigured() && (source.audioKey || audioInput)) {
+      await emit("ANALYZING", 15, "Transcribing audio");
+      try {
+        let audioPath: string;
+        if (source.audioKey) {
+          audioPath = await fetchToWorkDir(work, source.audioKey, "audio");
+        } else {
+          // Transcription APIs need a file; pull a compact mono track from the stream
+          audioPath = work.file("audio.m4a");
+          await extractAudio(audioInput!, audioPath);
+        }
         const result = await transcribeAudio(audioPath, work.file);
         segments = result.segments;
-        await prisma.$transaction(async (tx) => {
-          const transcript = await tx.transcript.upsert({
-            where: { projectId },
-            create: {
-              projectId,
-              status: "COMPLETED",
-              language: result.language,
-              provider: result.provider,
-              fullText: segments.map((s) => s.text).join(" "),
-            },
-            update: {
-              status: "COMPLETED",
-              language: result.language,
-              provider: result.provider,
-              fullText: segments.map((s) => s.text).join(" "),
-              error: null,
-            },
-          });
-          await tx.transcriptSegment.deleteMany({
-            where: { transcriptId: transcript.id },
-          });
-          if (segments.length > 0) {
-            await tx.transcriptSegment.createMany({
-              data: segments.map((s, index) => ({
-                transcriptId: transcript.id,
-                index,
-                startTime: s.startTime,
-                endTime: s.endTime,
-                text: s.text,
-              })),
-            });
-          }
-        });
+        await saveTranscript(projectId, result);
       } catch (err) {
         // Transcription failing shouldn't kill highlight generation
         const message = err instanceof Error ? err.message : String(err);
@@ -107,7 +162,7 @@ export async function processHighlightGeneration(
           update: { status: "FAILED", error: message.slice(0, 500) },
         });
       }
-    } else if (segments.length === 0 && !transcriptionConfigured()) {
+    } else if (segments.length === 0) {
       await prisma.transcript.upsert({
         where: { projectId },
         create: { projectId, status: "UNAVAILABLE" },
@@ -117,8 +172,12 @@ export async function processHighlightGeneration(
 
     // ── 2. Signal analysis ───────────────────────────────
     await emit("ANALYZING", 35, "Analyzing scenes and audio");
-    const mediaPath = await fetchToWorkDir(work, source.storageKey, "source");
-    const analysis = await analyzeMedia(mediaPath, { hasVideo: true });
+    if (!audioInput) {
+      const mediaPath = await fetchToWorkDir(work, source.storageKey!, "source");
+      audioInput = mediaPath;
+      videoInput = mediaPath;
+    }
+    const analysis = await analyzeMedia({ audio: audioInput, video: videoInput });
 
     // ── 3. Highlight selection ───────────────────────────
     await prisma.project.update({

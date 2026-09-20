@@ -7,6 +7,9 @@ import { processCleanup } from "./processors/cleanup.processor";
 import { processHighlightGeneration } from "./processors/highlight-generation.processor";
 import { processRenderVideo } from "./processors/render-video.processor";
 import { closeProgressPublisher } from "./lib/progress";
+import { checkFfmpegCapabilities } from "./lib/ffmpeg";
+import { finalizeStalledJob, isStalledFailure } from "./lib/stalled";
+import { killTrackedChildren } from "./lib/children";
 import { getPrismaClient } from "@clipforge/database";
 
 /**
@@ -38,6 +41,12 @@ const workers = registry.map(({ queue, processor, concurrency }) => {
     console.error(
       `[${queue}] job ${job?.id} failed (attempt ${job?.attemptsMade}): ${err.message}`,
     );
+    // A stalled job never reached its processor's catch — finalise it here
+    if (job && isStalledFailure(err)) {
+      void finalizeStalledJob(queue, job).catch((e: Error) =>
+        console.error(`[${queue}] could not finalise stalled job ${job.id}: ${e.message}`),
+      );
+    }
   });
   worker.on("error", (err) => {
     console.error(`[${queue}] worker error: ${err.message}`);
@@ -49,9 +58,17 @@ console.log(
   `ClipForge worker started — listening on: ${registry.map((r) => r.queue).join(", ")}`,
 );
 
+void checkFfmpegCapabilities().catch((err: Error) => {
+  console.error(`ffmpeg check failed: ${err.message}`);
+});
+
 async function shutdown(signal: string): Promise<void> {
   console.log(`\n${signal} received, shutting down workers…`);
-  await Promise.allSettled(workers.map((w) => w.close()));
+  // Stop media children first so in-flight jobs fail fast (and get
+  // finalised as stalled/failed) instead of orphaning ffmpeg/yt-dlp
+  const killed = killTrackedChildren();
+  if (killed > 0) console.log(`Stopped ${killed} running media process(es)`);
+  await Promise.allSettled(workers.map((w) => w.close(true)));
   closeProgressPublisher();
   await getPrismaClient().$disconnect();
   connection.disconnect();
@@ -60,3 +77,6 @@ async function shutdown(signal: string): Promise<void> {
 
 process.on("SIGINT", () => void shutdown("SIGINT"));
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
+process.on("SIGHUP", () => void shutdown("SIGHUP"));
+// Last resort for exits that skip the handlers above (uncaught crash)
+process.on("exit", () => killTrackedChildren());

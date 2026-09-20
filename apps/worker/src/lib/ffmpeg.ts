@@ -1,5 +1,6 @@
 import { spawn } from "child_process";
 import { FFMPEG, FFPROBE } from "../env";
+import { track } from "./children";
 
 export interface ProbeResult {
   durationSeconds: number;
@@ -17,7 +18,7 @@ function run(
   opts?: { timeoutMs?: number },
 ): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const child = spawn(binary, args, { windowsHide: true });
+    const child = track(spawn(binary, args, { windowsHide: true }));
     let stdout = "";
     let stderr = "";
     const timeout = opts?.timeoutMs
@@ -47,6 +48,37 @@ function run(
         );
     });
   });
+}
+
+/** Filters the render pipeline needs that lean ffmpeg builds often omit. */
+const REQUIRED_FILTERS: Array<{ name: string; feature: string }> = [
+  { name: "subtitles", feature: "burned-in captions (needs libass)" },
+  { name: "drawtext", feature: "watermark text (needs fontconfig/freetype)" },
+];
+
+/**
+ * Warns at startup when the resolved ffmpeg can't do captions or
+ * watermarks, so a missing library shows up before the first render
+ * fails with an opaque "No such filter" error.
+ */
+export async function checkFfmpegCapabilities(): Promise<string[]> {
+  const { stdout } = await run(FFMPEG, ["-hide_banner", "-filters"], {
+    timeoutMs: 30_000,
+  });
+  const available = new Set(
+    stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim().split(/\s+/)[1])
+      .filter((n): n is string => Boolean(n)),
+  );
+  const missing = REQUIRED_FILTERS.filter((f) => !available.has(f.name));
+  for (const f of missing) {
+    console.warn(
+      `ffmpeg (${FFMPEG}) lacks the '${f.name}' filter — ${f.feature} will fail. ` +
+        `Install a full build (e.g. \`brew install ffmpeg-full\`) or point FFMPEG_PATH at one.`,
+    );
+  }
+  return missing.map((f) => f.name);
 }
 
 export async function probeVideo(filePath: string): Promise<ProbeResult> {

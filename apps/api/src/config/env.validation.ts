@@ -24,8 +24,6 @@ const envSchema = z.object({
     .string()
     .default("true")
     .transform((v) => v !== "false"),
-
-  YOUTUBE_API_KEY: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

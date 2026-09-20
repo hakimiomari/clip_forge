@@ -48,7 +48,7 @@ require auth unless marked **public**. Errors follow Nest's shape:
   "rightsConfirmed": true                      // must be true
 }
 
-// YouTube flow (metadata only — no media download)
+// YouTube flow (metadata import; analysis streams the video, renders fetch only the clip window)
 {
   "sourceType": "YOUTUBE",
   "url": "https://www.youtube.com/watch?v=…",

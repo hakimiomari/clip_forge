@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { CREDIT_COSTS } from "@clipforge/shared-types";
+import { hasProcessableMedia } from "../common/media-source";
 import { PrismaService } from "../prisma/prisma.service";
 import { ProjectsService } from "../projects/projects.service";
 import { QueuesService } from "../queues/queues.service";
@@ -31,11 +32,9 @@ export class HighlightsService {
     const source = await this.prisma.videoSource.findUnique({
       where: { projectId },
     });
-    if (!source?.storageKey || !source.duration) {
+    if (!source?.duration || !hasProcessableMedia(source)) {
       throw new BadRequestException(
-        source?.sourceType === "YOUTUBE"
-          ? "YouTube sources import metadata only. Upload a video file you are authorized to use to generate highlights."
-          : "Import a video file before generating highlights.",
+        "Import a video before generating highlights.",
       );
     }
     if (dto.clipDuration >= source.duration) {

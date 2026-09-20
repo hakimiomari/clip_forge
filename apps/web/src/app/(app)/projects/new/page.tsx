@@ -216,9 +216,10 @@ export default function NewProjectPage() {
                 onChange={(e) => setYoutubeUrl(e.target.value)}
               />
               <p className="mt-2 text-xs text-muted">
-                ClipForge fetches title and thumbnail via YouTube&apos;s public
-                metadata endpoints. To generate clips, upload media you are
-                authorized to use — ClipForge does not download YouTube videos.
+                ClipForge analyses the video by streaming it and fetches only
+                the seconds each clip needs — the full video is never
+                downloaded. Only import videos you own or are authorized to
+                use — you confirm this below.
               </p>
             </div>
           )}

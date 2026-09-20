@@ -12,6 +12,7 @@ import {
   type EditingPlan,
   type VideoFormat,
 } from "@clipforge/shared-types";
+import { hasProcessableMedia } from "../common/media-source";
 import { PrismaService } from "../prisma/prisma.service";
 import { QueuesService } from "../queues/queues.service";
 import { StorageService } from "../storage/storage.service";
@@ -65,7 +66,7 @@ export class ClipsService {
     const source = await this.prisma.videoSource.findUnique({
       where: { projectId },
     });
-    if (!source?.storageKey || !source.duration) {
+    if (!source?.duration || !hasProcessableMedia(source)) {
       throw new BadRequestException("Source media is missing for this project");
     }
 

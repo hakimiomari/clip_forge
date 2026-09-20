@@ -1,5 +1,6 @@
 import { spawn } from "child_process";
 import { FFMPEG } from "../env";
+import { track } from "./children";
 
 /**
  * Signal analysis used by the heuristic highlight selector (and later the
@@ -22,7 +23,7 @@ export interface MediaAnalysis {
 
 function runFfmpeg(args: string[], timeoutMs: number): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const child = spawn(FFMPEG, args, { windowsHide: true });
+    const child = track(spawn(FFMPEG, args, { windowsHide: true }));
     let stdout = "";
     let stderr = "";
     const timer = setTimeout(() => {
@@ -47,6 +48,16 @@ function runFfmpeg(args: string[], timeoutMs: number): Promise<{ stdout: string;
   });
 }
 
+/**
+ * Input flags for a local file or an https stream. Remote inputs get
+ * reconnect handling so a dropped CDN connection doesn't abort analysis.
+ */
+function inputArgs(input: string): string[] {
+  return /^https?:\/\//i.test(input)
+    ? ["-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "5", "-i", input]
+    : ["-i", input];
+}
+
 export async function detectSilences(
   filePath: string,
   opts?: { noiseDb?: number; minDuration?: number },
@@ -56,7 +67,7 @@ export async function detectSilences(
   const { stderr } = await runFfmpeg(
     [
       "-hide_banner",
-      "-i", filePath,
+      ...inputArgs(filePath),
       "-vn",
       "-af", `silencedetect=noise=${noise}dB:d=${minDur}`,
       "-f", "null", "-",
@@ -87,7 +98,7 @@ export async function detectSceneChanges(
   const { stderr } = await runFfmpeg(
     [
       "-hide_banner",
-      "-i", filePath,
+      ...inputArgs(filePath),
       "-an",
       // Downscale before scene scoring — much faster, same cut points
       "-vf", `scale=320:-2,select='gt(scene,${threshold})',showinfo`,
@@ -107,7 +118,7 @@ export async function audioEnergyPerSecond(filePath: string): Promise<number[]> 
   const { stdout } = await runFfmpeg(
     [
       "-hide_banner",
-      "-i", filePath,
+      ...inputArgs(filePath),
       "-vn",
       "-ac", "1",
       "-ar", "48000",
@@ -125,14 +136,19 @@ export async function audioEnergyPerSecond(filePath: string): Promise<number[]> 
   return energy;
 }
 
-export async function analyzeMedia(
-  filePath: string,
-  opts?: { hasVideo?: boolean },
-): Promise<MediaAnalysis> {
+/**
+ * Audio and video may come from different inputs (a local file for both,
+ * or separate CDN streams for a YouTube source). `video: null` skips
+ * scene detection.
+ */
+export async function analyzeMedia(inputs: {
+  audio: string;
+  video: string | null;
+}): Promise<MediaAnalysis> {
   const [silences, energyPerSecond, sceneChanges] = await Promise.all([
-    detectSilences(filePath),
-    audioEnergyPerSecond(filePath),
-    opts?.hasVideo === false ? Promise.resolve([]) : detectSceneChanges(filePath),
+    detectSilences(inputs.audio),
+    audioEnergyPerSecond(inputs.audio),
+    inputs.video ? detectSceneChanges(inputs.video) : Promise.resolve([]),
   ]);
   return { silences, sceneChanges, energyPerSecond };
 }

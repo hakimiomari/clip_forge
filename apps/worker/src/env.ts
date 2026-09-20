@@ -45,7 +45,7 @@ const schema = z.object({
     .transform((v) => v !== "false"),
   FFMPEG_PATH: z.string().optional(),
   FFPROBE_PATH: z.string().optional(),
-  YOUTUBE_API_KEY: z.string().optional(),
+  YTDLP_PATH: z.string().optional(),
   // AI providers (all optional — heuristic fallback works without keys)
   AI_PROVIDER: z.enum(["anthropic", "openai", "heuristic", "mock"]).default("heuristic"),
   AI_API_KEY: z.string().optional(),
@@ -67,3 +67,4 @@ if (!parsed.success) {
 export const env = parsed.data;
 export const FFMPEG = env.FFMPEG_PATH?.trim() || "ffmpeg";
 export const FFPROBE = env.FFPROBE_PATH?.trim() || "ffprobe";
+export const YTDLP = env.YTDLP_PATH?.trim() || "yt-dlp";

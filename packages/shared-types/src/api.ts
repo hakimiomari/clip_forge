@@ -33,6 +33,7 @@ export interface VideoSourceSummary {
   duration: number | null;
   width: number | null;
   height: number | null;
+  sizeBytes: number | null;
   rights: string;
 }
 

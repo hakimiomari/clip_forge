@@ -43,7 +43,7 @@ Three processes, strictly separated:
 | Presigned direct-to-storage uploads | The API never proxies gigabytes; the browser PUTs straight to MinIO/S3 with a scoped, time-limited URL. Upload keys are namespaced `users/{userId}/…` and the import endpoint rejects keys outside the caller's prefix. |
 | Raw BullMQ (no @nestjs/bullmq) | The API only *adds* jobs; a thin `QueuesService` avoids version coupling. The worker registers processors from a simple registry table. |
 | Progress via Redis pub/sub → Socket.IO rooms | Worker stays framework-free; the API's `EventsGateway` authenticates sockets with the access token and only lets owners join `project:{id}` rooms. The UI also polls while processing as a fallback. |
-| YouTube = metadata only | oEmbed (title/thumbnail/author) and optional Data API v3 (duration) are compliant. ClipForge does not download YouTube media; clip generation runs on media the user uploads and is authorized to use. |
+| YouTube = stream, never store | Import reads metadata only (`yt-dlp --dump-single-json`). Highlight analysis resolves CDN stream URLs (`yt-dlp -g`) and ffmpeg reads the audio-only and ≤360p video streams directly over HTTP. Rendering fetches just the clip's window (`yt-dlp --download-sections`, keyframes forced at the cut) into a temp dir. All spawns are argv-only, no shell. The user's rights declaration is required at import. |
 | JSON columns versioned (`Timeline.version`, `Clip.planVersion`) | Editor and render formats will evolve; persisted documents carry their schema version for forward migration. |
 | Credits as a ledger (`CreditTransaction`) + cached balance | Balance updates use a conditional decrement (no overdraw under concurrency); every spend/grant is auditable, refunds on failed job setup. |
 

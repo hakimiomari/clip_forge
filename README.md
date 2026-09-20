@@ -2,7 +2,7 @@
 
 AI-powered **video highlight generator & short-form video editor**. Upload a long video you own or are authorized to use — ClipForge analyzes it, finds the best moments, and renders polished vertical/square/landscape clips with captions, zoom, blurred backgrounds and fades, ready to download as MP4.
 
-> ⚠️ ClipForge is **not** a copyright-bypass tool. Editing effects (cropping, zooming, mirroring, transitions) do not make copyrighted material safe to republish and do not guarantee Content ID avoidance. Every import requires the user to declare a rights basis. YouTube sources import **metadata only** (title/thumbnail via public oEmbed) — media is never downloaded from YouTube.
+> ⚠️ ClipForge is **not** a copyright-bypass tool. Editing effects (cropping, zooming, mirroring, transitions) do not make copyrighted material safe to republish and do not guarantee Content ID avoidance. Every import requires the user to declare a rights basis. YouTube sources are never downloaded in full: the worker streams them for analysis and fetches only the seconds each clip needs (via yt-dlp/ffmpeg). Only import videos you own or are authorized to use, and note that accessing media this way may be restricted by YouTube's Terms of Service.
 
 ---
 
@@ -62,7 +62,8 @@ Deep dive: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Endpoints: [docs/API.
 
 - **Node.js ≥ 22** and **pnpm** (`npm i -g pnpm`)
 - **Docker Desktop** (PostgreSQL, Redis, MinIO run as containers)
-- **FFmpeg + FFprobe** on your `PATH` (verify: `ffmpeg -version`) — or set `FFMPEG_PATH`/`FFPROBE_PATH` in `.env`
+- **FFmpeg + FFprobe** built with libass and fontconfig (needed for burned-in captions and the watermark). On macOS, Homebrew's lean `ffmpeg` lacks them — use `brew install ffmpeg-full` and set `FFMPEG_PATH=/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg` / `FFPROBE_PATH=…/ffprobe` in `.env`. The worker warns at startup if the `subtitles` or `drawtext` filter is missing.
+- **yt-dlp** on your `PATH` (`brew install yt-dlp`) for YouTube sources — or set `YTDLP_PATH`
 
 ## Setup from scratch
 
@@ -78,7 +79,7 @@ cp .env.example .env
 node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 #    (run twice: JWT_SECRET and JWT_REFRESH_SECRET)
 
-# 3. Start infrastructure (PostgreSQL :5432, Redis :6379, MinIO :9000/:9001)
+# 3. Start infrastructure (PostgreSQL :5433, Redis :6380, MinIO :9000/:9001)
 pnpm infra:up
 #    A one-shot job creates the storage bucket automatically.
 
@@ -111,7 +112,7 @@ Stop infrastructure with `pnpm infra:down` (data persists in Docker volumes).
 
 1. **Register** at http://localhost:3000 (any email works in dev; new accounts get 20 credits).
 2. **New project** → choose **Upload file** (MP4/MOV/MKV/WebM up to 4 GB), tick the rights confirmation, and create. The file goes straight to storage via a presigned URL; the worker probes it, makes a thumbnail, extracts audio, and marks the project **Imported** — progress streams live.
-   - *YouTube URL* imports title/thumbnail metadata only; to process content you must upload a file you're authorized to use.
+   - *YouTube URL* imports metadata in seconds (max 4 hours). Highlight analysis streams the audio and a low-res video feed through ffmpeg; each render fetches only that clip's window (best MP4 up to 1080p) with `yt-dlp`. Nothing from YouTube is stored except your rendered clips.
 3. On the project page, use **Generate AI highlights**: pick clip length (30–120 s), number of suggestions and caption style → **Find the best moments** (2 credits). Watch the analysis progress live.
 4. Each suggestion card shows a **score /100, title, time range, hook and the reason** it was selected. Click **Create clip** — the clip renders immediately (2 credits per 30 s).
 5. On the clip card: watch render progress, then **preview** the video, **Download MP4**, **Edit** (format, captions on/off, caption style, zoom → *Save & re-render*), **Re-render**, or **Delete**.
@@ -175,7 +176,7 @@ All variables live in the root `.env` (see `.env.example` for the annotated list
 | Storage | `S3_ENDPOINT`, `S3_PUBLIC_ENDPOINT` (what the *browser* reaches), `S3_REGION`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `S3_FORCE_PATH_STYLE` |
 | AI | `AI_PROVIDER`, `AI_API_KEY`, `AI_MODEL`, `TRANSCRIPTION_PROVIDER`, `TRANSCRIPTION_API_KEY` |
 | Video tools | `FFMPEG_PATH`, `FFPROBE_PATH` (empty = use PATH) |
-| Misc | `YOUTUBE_API_KEY` (optional, adds duration to YouTube metadata), `NEXT_PUBLIC_API_URL` |
+| Misc | `YTDLP_PATH` (optional, if `yt-dlp` isn't on PATH), `NEXT_PUBLIC_API_URL` |
 
 ## Testing
 

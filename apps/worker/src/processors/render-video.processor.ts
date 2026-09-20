@@ -10,6 +10,7 @@ import { probeVideo } from "../lib/ffmpeg";
 import { uploadFile } from "../lib/storage";
 import { publishProgress } from "../lib/progress";
 import { refundCredits } from "../lib/credits";
+import { downloadYouTubeSection } from "../lib/youtube";
 
 /**
  * render-video: Rendering Agent + Quality Control Agent.
@@ -31,7 +32,8 @@ export async function processRenderVideo(job: Job<RenderVideoJob>): Promise<void
     throw new Error(`Clip ${clipId} not found for user`);
   }
   const source = clip.project.source;
-  if (!source?.storageKey) {
+  const youtubeId = source?.sourceType === "YOUTUBE" ? source.externalId : null;
+  if (!source || (!source.storageKey && !youtubeId)) {
     throw new Error("Source media is missing — cannot render this clip");
   }
   const plan = clip.editingPlan as unknown as EditingPlan | null;
@@ -69,7 +71,17 @@ export async function processRenderVideo(job: Job<RenderVideoJob>): Promise<void
     });
     await emit(2, "Preparing render");
 
-    const inputPath = await fetchToWorkDir(work, source.storageKey, "source");
+    // For YouTube, fetch only this clip's window; the file then starts at 0
+    let inputPath: string;
+    let inputOffset = 0;
+    if (youtubeId) {
+      await emit(4, "Fetching clip section from YouTube");
+      inputPath = work.file("section.mp4");
+      await downloadYouTubeSection(youtubeId, segment.sourceStart, segment.sourceEnd, inputPath);
+      inputOffset = segment.sourceStart;
+    } else {
+      inputPath = await fetchToWorkDir(work, source.storageKey!, "source");
+    }
 
     // Captions → ASS file
     let assPath: string | undefined;
@@ -102,8 +114,8 @@ export async function processRenderVideo(job: Job<RenderVideoJob>): Promise<void
     const spec: RenderSpec = {
       inputPath,
       outputPath: work.file("output.mp4"),
-      sourceStart: segment.sourceStart,
-      sourceEnd: segment.sourceEnd,
+      sourceStart: segment.sourceStart - inputOffset,
+      sourceEnd: segment.sourceEnd - inputOffset,
       width: width || 1080,
       height: height || 1920,
       blurBackground: plan.background?.type === "blurred_original",
@@ -134,6 +146,13 @@ export async function processRenderVideo(job: Job<RenderVideoJob>): Promise<void
     try {
       await runRender(spec, onProgress);
     } catch (err) {
+      const missingFilter = String(err).match(/No such filter: '(\w+)'/)?.[1];
+      if (missingFilter && missingFilter !== "drawtext") {
+        throw new Error(
+          `This ffmpeg build lacks the '${missingFilter}' filter needed for captions. ` +
+            `Install a full build (brew install ffmpeg-full) or set FFMPEG_PATH.`,
+        );
+      }
       // Some FFmpeg builds lack fontconfig for drawtext — retry unwatermarked
       if (spec.watermarkText) {
         console.warn(
