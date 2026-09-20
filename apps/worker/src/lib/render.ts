@@ -79,9 +79,13 @@ export function buildFilterGraph(spec: RenderSpec): string {
 
   // ── Layout ─────────────────────────────────────────────
   if (spec.blurBackground) {
+    // Blur at quarter resolution and upscale — visually identical for a
+    // defocused background, ~16x cheaper than blurring at full size
+    const qw = Math.round(w / 4 / 2) * 2;
+    const qh = Math.round(h / 4 / 2) * 2;
     chains.push(
       `[${vIn}]split=2[v0][v1]`,
-      `[v0]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},boxblur=luma_radius=28:luma_power=2,eq=brightness=-0.06[bg]`,
+      `[v0]scale=${qw}:${qh}:force_original_aspect_ratio=increase,crop=${qw}:${qh},boxblur=luma_radius=7:luma_power=2,eq=brightness=-0.06,scale=${w}:${h}[bg]`,
       `[v1]scale=${w}:${h}:force_original_aspect_ratio=decrease[fg]`,
       `[bg][fg]overlay=(W-w)/2:(H-h)/2[vbase]`,
     );
@@ -101,11 +105,11 @@ export function buildFilterGraph(spec: RenderSpec): string {
   }
 
   if (spec.zoom) {
-    // Gentle continuous push-in, capped at 8%
-    const frames = Math.max(1, Math.round(outDur * fps));
-    const rate = (0.08 / frames).toFixed(8);
+    // Gentle continuous push-in, capped at 8%. Implemented as per-frame
+    // scale + centered crop — an order of magnitude cheaper than zoompan.
+    const zExpr = `(1+0.08*min(t/${Math.max(outDur, 0.1).toFixed(3)},1))`;
     chains.push(
-      `[${label}]zoompan=z='min(zoom+${rate},1.08)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${w}x${h}:fps=${fps}[vzoom]`,
+      `[${label}]scale=w='trunc(iw*${zExpr}/2)*2':h='trunc(ih*${zExpr}/2)*2':eval=frame,crop=${w}:${h}[vzoom]`,
     );
     label = "vzoom";
   }

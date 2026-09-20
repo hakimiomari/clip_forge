@@ -31,6 +31,7 @@ export function GenerateHighlightsCard({
   const [duration, setDuration] = useState<number>(60);
   const [count, setCount] = useState<number>(3);
   const [captionStyle, setCaptionStyle] = useState<string>("bold_dynamic");
+  const [useTranscript, setUseTranscript] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const mutation = useMutation({
@@ -100,6 +101,19 @@ export function GenerateHighlightsCard({
             ))}
           </div>
         </div>
+        <label className="flex cursor-pointer items-start gap-2.5 text-sm text-muted-strong">
+          <input
+            type="checkbox"
+            checked={useTranscript}
+            onChange={(e) => setUseTranscript(e.target.checked)}
+            className="mt-0.5 h-4 w-4 accent-[#6d5cff]"
+          />
+          <span>
+            Use the transcript when available — better titles, hooks, and
+            cut points that never split a sentence. Uncheck for pure
+            audio/scene analysis.
+          </span>
+        </label>
         <FieldError message={error ?? undefined} />
         <Button
           className="w-full"
@@ -111,6 +125,7 @@ export function GenerateHighlightsCard({
               format: "vertical",
               editingStyle: "dynamic_viral",
               captionStyle,
+              useTranscript,
             })
           }
         >

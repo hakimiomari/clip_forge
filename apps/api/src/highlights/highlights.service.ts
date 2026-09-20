@@ -63,6 +63,7 @@ export class HighlightsService {
           format: dto.format,
           editingStyle: dto.editingStyle,
           captionStyle: dto.captionStyle,
+          useTranscript: dto.useTranscript,
         },
       });
       return { ok: true, status: "ANALYZING" };
@@ -84,6 +85,30 @@ export class HighlightsService {
       where: { projectId },
       orderBy: { score: "desc" },
     });
+  }
+
+  /** Full transcript with segments for the project's transcript panel. */
+  async transcript(projectId: string, userId: string) {
+    await this.projects.getOwned(projectId, userId);
+    const transcript = await this.prisma.transcript.findUnique({
+      where: { projectId },
+      include: { segments: { orderBy: { index: "asc" } } },
+    });
+    if (!transcript) {
+      return { status: "PENDING", language: null, provider: null, segments: [] };
+    }
+    return {
+      status: transcript.status,
+      language: transcript.language,
+      provider: transcript.provider,
+      error: transcript.error,
+      segments: transcript.segments.map((s) => ({
+        startTime: s.startTime,
+        endTime: s.endTime,
+        text: s.text,
+        speaker: s.speaker,
+      })),
+    };
   }
 
   async getOwned(highlightId: string, userId: string) {

@@ -45,6 +45,8 @@ export interface HighlightGenerationOptions {
   format: VideoFormat;
   editingStyle: EditingStyle;
   captionStyle: CaptionStyleName;
+  /** Use the transcript (when available) for selection — default true */
+  useTranscript?: boolean;
 }
 
 export interface ClipGenerationJob {

@@ -114,15 +114,18 @@ export async function processHighlightGeneration(
       videoInput = streams.videoUrl;
     }
 
+    // The user can opt out of transcript-guided selection entirely
+    const useTranscript = options.useTranscript !== false;
+
     let segments: TranscriptSegmentLite[] =
-      project.transcript?.status === "COMPLETED"
+      useTranscript && project.transcript?.status === "COMPLETED"
         ? project.transcript.segments
             .sort((a, b) => a.index - b.index)
             .map((s) => ({ startTime: s.startTime, endTime: s.endTime, text: s.text }))
         : [];
 
     // YouTube's own captions are free and usually good — try them first
-    if (segments.length === 0 && isYouTube) {
+    if (useTranscript && segments.length === 0 && isYouTube) {
       await emit("ANALYZING", 12, "Fetching YouTube transcript");
       try {
         const info = await fetchYouTubeInfo(source.externalId!);
@@ -139,7 +142,7 @@ export async function processHighlightGeneration(
     }
 
     // Otherwise transcribe the audio when a provider is configured
-    if (segments.length === 0 && transcriptionConfigured() && (source.audioKey || audioInput)) {
+    if (useTranscript && segments.length === 0 && transcriptionConfigured() && (source.audioKey || audioInput)) {
       await emit("ANALYZING", 15, "Transcribing audio");
       try {
         let audioPath: string;
@@ -162,7 +165,7 @@ export async function processHighlightGeneration(
           update: { status: "FAILED", error: message.slice(0, 500) },
         });
       }
-    } else if (segments.length === 0) {
+    } else if (useTranscript && segments.length === 0) {
       await prisma.transcript.upsert({
         where: { projectId },
         create: { projectId, status: "UNAVAILABLE" },
@@ -173,11 +176,20 @@ export async function processHighlightGeneration(
     // ── 2. Signal analysis ───────────────────────────────
     await emit("ANALYZING", 35, "Analyzing scenes and audio");
     if (!audioInput) {
+      // Audio passes read the compact extracted track when available —
+      // decoding it is much cheaper than demuxing the full video twice
+      if (source.audioKey) {
+        audioInput = await fetchToWorkDir(work, source.audioKey, "audio-small");
+      }
       const mediaPath = await fetchToWorkDir(work, source.storageKey!, "source");
-      audioInput = mediaPath;
+      audioInput ??= mediaPath;
       videoInput = mediaPath;
     }
-    const analysis = await analyzeMedia({ audio: audioInput, video: videoInput });
+    const analysis = await analyzeMedia({
+      audio: audioInput,
+      video: videoInput,
+      durationSeconds: source.duration,
+    });
 
     // ── 3. Highlight selection ───────────────────────────
     await prisma.project.update({

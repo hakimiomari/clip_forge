@@ -25,6 +25,7 @@ import { ProgressBar } from "@/components/ui/progress";
 import { GenerateHighlightsCard } from "@/components/projects/generate-highlights-card";
 import { HighlightList } from "@/components/projects/highlight-list";
 import { ClipCard } from "@/components/projects/clip-card";
+import { TranscriptPanel } from "@/components/projects/transcript-panel";
 
 const PROCESSING_STATUSES = [
   "IMPORTING",
@@ -256,6 +257,10 @@ export default function ProjectDetailPage({
           )}
         </div>
       </div>
+
+      <section className="mt-6">
+        <TranscriptPanel projectId={projectId} />
+      </section>
 
       {project.highlights.length > 0 && (
         <section className="mt-8">

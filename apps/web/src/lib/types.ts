@@ -55,6 +55,20 @@ export interface GenerateHighlightsInput {
   format: string;
   editingStyle: string;
   captionStyle: string;
+  useTranscript?: boolean;
+}
+
+export interface TranscriptResponse {
+  status: string;
+  language: string | null;
+  provider: string | null;
+  error?: string | null;
+  segments: Array<{
+    startTime: number;
+    endTime: number;
+    text: string;
+    speaker: string | null;
+  }>;
 }
 
 export type { ProjectSummary, VideoSourceSummary };

@@ -8,6 +8,7 @@ export interface ProbeResult {
   height: number | null;
   fps: number | null;
   hasAudio: boolean;
+  audioCodec: string | null;
   formatName: string;
 }
 
@@ -97,6 +98,7 @@ export async function probeVideo(filePath: string): Promise<ProbeResult> {
     format?: { duration?: string; format_name?: string };
     streams?: Array<{
       codec_type?: string;
+      codec_name?: string;
       width?: number;
       height?: number;
       avg_frame_rate?: string;
@@ -120,6 +122,7 @@ export async function probeVideo(filePath: string): Promise<ProbeResult> {
     height: video.height ?? null,
     fps,
     hasAudio: Boolean(audio),
+    audioCodec: audio?.codec_name ?? null,
     formatName: data.format?.format_name ?? "unknown",
   };
 }
@@ -146,27 +149,23 @@ export async function generateThumbnail(
 }
 
 /**
- * Extracts compact mono AAC audio for transcription providers.
- * The source sample rate is kept: forcing -ar 16000 makes the native
- * AAC encoder pathologically slow (near-hang) on some content, and
- * transcription APIs resample internally anyway.
+ * Extracts audio for transcription/analysis. When the source track is
+ * already AAC it is remuxed (`-c:a copy`) — near-instant vs a full
+ * re-encode. Otherwise: mono AAC at the source sample rate (forcing
+ * -ar 16000 makes the native AAC encoder near-hang on some content;
+ * transcription APIs resample internally anyway).
  */
 export async function extractAudio(
   inputPath: string,
   outputPath: string,
+  opts?: { copyCodec?: boolean },
 ): Promise<void> {
+  const codecArgs = opts?.copyCodec
+    ? ["-c:a", "copy"]
+    : ["-ac", "1", "-c:a", "aac", "-b:a", "64k"];
   await run(
     FFMPEG,
-    [
-      "-y",
-      "-nostdin",
-      "-i", inputPath,
-      "-vn",
-      "-ac", "1",
-      "-c:a", "aac",
-      "-b:a", "64k",
-      outputPath,
-    ],
+    ["-y", "-nostdin", "-i", inputPath, "-vn", ...codecArgs, outputPath],
     { timeoutMs: 30 * 60_000 },
   );
 }

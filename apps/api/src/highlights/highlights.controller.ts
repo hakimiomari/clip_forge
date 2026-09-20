@@ -26,6 +26,11 @@ export class HighlightsController {
     return this.highlights.list(projectId, user.id);
   }
 
+  @Get("projects/:id/transcript")
+  transcript(@CurrentUser() user: RequestUser, @Param("id") projectId: string) {
+    return this.highlights.transcript(projectId, user.id);
+  }
+
   @Get("highlights/:id")
   get(@CurrentUser() user: RequestUser, @Param("id") id: string) {
     return this.highlights.getOwned(id, user.id);

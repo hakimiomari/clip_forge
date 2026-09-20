@@ -1,5 +1,13 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
-import { IsEnum, IsIn, IsInt, IsOptional, Max, Min } from "class-validator";
+import {
+  IsBoolean,
+  IsEnum,
+  IsIn,
+  IsInt,
+  IsOptional,
+  Max,
+  Min,
+} from "class-validator";
 import { Type } from "class-transformer";
 
 export enum GenerateFormat {
@@ -61,4 +69,13 @@ export class GenerateHighlightsDto {
   @IsOptional()
   @IsEnum(GenerateCaptionStyle)
   captionStyle: GenerateCaptionStyle = GenerateCaptionStyle.bold_dynamic;
+
+  @ApiPropertyOptional({
+    default: true,
+    description:
+      "Use the transcript (when available) to pick moments and snap cut points",
+  })
+  @IsOptional()
+  @IsBoolean()
+  useTranscript: boolean = true;
 }

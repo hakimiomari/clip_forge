@@ -129,7 +129,10 @@ async function importUpload(
   if (probe.hasAudio) {
     await progress(75, "Extracting audio track");
     const audioPath = work.file("audio.m4a");
-    await extractAudio(localSource, audioPath);
+    // AAC sources remux instantly instead of re-encoding
+    await extractAudio(localSource, audioPath, {
+      copyCodec: probe.audioCodec === "aac",
+    });
     audioKey = `users/${userId}/projects/${projectId}/audio/source.m4a`;
     await uploadFile(audioPath, audioKey, "audio/mp4");
   }

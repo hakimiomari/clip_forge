@@ -29,8 +29,11 @@ void test("escapeFilterPath handles Windows paths", () => {
 void test("filtergraph includes blur background, zoom, fades and loudnorm", () => {
   const graph = buildFilterGraph(baseSpec);
   assert.match(graph, /boxblur/);
+  // Blur runs at quarter resolution, then upscales to full frame
+  assert.match(graph, /scale=270:480:force_original_aspect_ratio=increase/);
   assert.match(graph, /overlay=\(W-w\)\/2:\(H-h\)\/2/);
-  assert.match(graph, /zoompan/);
+  // Zoom is per-frame scale+crop (zoompan was an order of magnitude slower)
+  assert.match(graph, /eval=frame,crop=1080:1920\[vzoom\]/);
   assert.match(graph, /fade=t=in/);
   assert.match(graph, /fade=t=out:st=59\.55/); // 60s clip → fade near the end
   assert.match(graph, /loudnorm/);
@@ -49,7 +52,7 @@ void test("filtergraph burns subtitles when an ASS path is set", () => {
 void test("pad mode used when blur background disabled", () => {
   const graph = buildFilterGraph({ ...baseSpec, blurBackground: false, zoom: false });
   assert.match(graph, /pad=1080:1920/);
-  assert.doesNotMatch(graph, /zoompan/);
+  assert.doesNotMatch(graph, /vzoom/);
 });
 
 void test("render args seek, bound input read and map streams", () => {
