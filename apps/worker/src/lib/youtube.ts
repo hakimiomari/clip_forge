@@ -1,4 +1,5 @@
 import { spawn } from "child_process";
+import { existsSync } from "fs";
 import { readdir, readFile, stat } from "fs/promises";
 import path from "path";
 import { env, FFMPEG, YTDLP } from "../env";
@@ -122,12 +123,41 @@ function watchUrl(videoId: string): string {
   return `https://www.youtube.com/watch?v=${videoId}`;
 }
 
+/**
+ * Where ffmpeg lives, for yt-dlp's benefit. It does its own lookup and
+ * aborts a partial download if that misses — which happens whenever the
+ * worker was started from a shell with a stale PATH. Telling it outright
+ * removes that failure entirely.
+ */
+let ffmpegDirCache: string | null | undefined;
+function ffmpegDirectory(): string | null {
+  if (ffmpegDirCache !== undefined) return ffmpegDirCache;
+  if (env.FFMPEG_PATH?.trim()) {
+    ffmpegDirCache = path.dirname(FFMPEG);
+    return ffmpegDirCache;
+  }
+  const extensions =
+    process.platform === "win32"
+      ? (process.env.PATHEXT ?? ".EXE").split(";").map((e) => e.toLowerCase())
+      : [""];
+  for (const dir of (process.env.PATH ?? "").split(path.delimiter)) {
+    if (!dir) continue;
+    for (const ext of extensions) {
+      if (existsSync(path.join(dir, `ffmpeg${ext}`))) {
+        ffmpegDirCache = dir;
+        return ffmpegDirCache;
+      }
+    }
+  }
+  ffmpegDirCache = null;
+  return null;
+}
+
 /** Common flags: never expand playlists, and point yt-dlp at our ffmpeg. */
 function baseArgs(): string[] {
   const args = ["--no-playlist", "--no-warnings", "--socket-timeout", "30", "--retries", "3"];
-  if (env.FFMPEG_PATH?.trim()) {
-    args.push("--ffmpeg-location", path.dirname(FFMPEG));
-  }
+  const dir = ffmpegDirectory();
+  if (dir) args.push("--ffmpeg-location", dir);
   return args;
 }
 
