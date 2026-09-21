@@ -21,11 +21,13 @@ import {
 } from "../lib/research/assemble";
 import {
   CARTOON_LONG_EDGE,
+  IMAGE_LONG_EDGE,
   probePixelSize,
   stylizeImage,
   stylizeVideo,
   type CartoonStyle,
 } from "../lib/cartoon";
+import { RESEARCH_RESOLUTIONS } from "../lib/research/assemble";
 
 /** Enough to say something, short enough to hold attention. */
 const MAX_SCENES = 8;
@@ -198,6 +200,12 @@ export async function processResearchVideo(job: Job<ResearchVideoJob>): Promise<
               inputPath: mediaPath,
               outPath: styled,
               style: cartoonStyle,
+              // The picture is scaled into the frame anyway, so there is
+              // nothing to gain from running the model above frame width
+              longEdge: Math.min(
+                IMAGE_LONG_EDGE,
+                RESEARCH_RESOLUTIONS[format].width,
+              ),
             });
             mediaPath = styled;
           }

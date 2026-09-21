@@ -304,18 +304,52 @@ export async function probePixelSize(
  * per frame, so research scenes built from photographs cost a fraction
  * of what stylizing their rendered video would.
  */
+/** Model activations grow with the frame; this is where CPU RAM gives out. */
+function isAllocationFailure(err: unknown): boolean {
+  return /Failed to allocate|bad_alloc|Cannot allocate memory|out of memory/i.test(
+    String(err),
+  );
+}
+
+/** Default for a single picture: sharp enough for a 1080-wide frame. */
+export const IMAGE_LONG_EDGE = 1024;
+const MIN_IMAGE_LONG_EDGE = 384;
+
 export async function stylizeImage(options: {
   inputPath: string;
   outPath: string;
   style: CartoonStyle;
   longEdge?: number;
 }): Promise<void> {
+  let longEdge = options.longEdge ?? IMAGE_LONG_EDGE;
+  for (;;) {
+    try {
+      await stylizeImageAt({ ...options, longEdge });
+      return;
+    } catch (err) {
+      // A big photograph can ask for more memory than the machine has
+      // free; halving the model input is far better than losing the scene
+      if (!isAllocationFailure(err) || longEdge <= MIN_IMAGE_LONG_EDGE) throw err;
+      longEdge = Math.max(MIN_IMAGE_LONG_EDGE, Math.floor(longEdge / 2));
+      console.warn(
+        `Cartoon ran out of memory, retrying at ${longEdge}px: ${String(err).slice(0, 120)}`,
+      );
+    }
+  }
+}
+
+async function stylizeImageAt(options: {
+  inputPath: string;
+  outPath: string;
+  style: CartoonStyle;
+  longEdge: number;
+}): Promise<void> {
   const session = await getCartoonSession(options.style);
   const source = await probePixelSize(options.inputPath);
   const { width, height } = modelDimensions(
     source.width,
     source.height,
-    options.longEdge ?? CARTOON_LONG_EDGE.high,
+    options.longEdge,
   );
   const frameBytes = width * height * 3;
 

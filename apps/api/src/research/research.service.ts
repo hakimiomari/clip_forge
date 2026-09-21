@@ -66,6 +66,56 @@ export class ResearchService {
     return this.toSummary(record);
   }
 
+  /**
+   * Builds a failed video again with the same topic and settings. The
+   * failure already refunded its credits, so this charges afresh.
+   */
+  async retry(id: string, userId: string): Promise<ResearchVideoSummary> {
+    const existing = await this.prisma.researchVideo.findUnique({ where: { id } });
+    if (!existing || existing.userId !== userId) {
+      throw new NotFoundException("Research video not found");
+    }
+    if (existing.status !== "FAILED") {
+      throw new BadRequestException("Only a failed video can be built again");
+    }
+    const running = await this.prisma.researchVideo.count({
+      where: { userId, status: { in: BUSY as never[] } },
+    });
+    if (running > 0) {
+      throw new BadRequestException(
+        "A research video is already being built — wait for it to finish.",
+      );
+    }
+
+    await this.usage.spend(userId, RESEARCH_VIDEO_CREDITS, "RENDER_CLIP", {});
+    const record = await this.prisma.researchVideo.update({
+      where: { id },
+      data: {
+        status: "PENDING",
+        step: "Queued",
+        error: null,
+        progress: 0,
+        // Last attempt's work is not reused; clear it so a half-built
+        // result can never be mistaken for this run's
+        scenes: undefined,
+        storageKey: null,
+        thumbnailKey: null,
+        duration: null,
+      },
+    });
+    try {
+      await this.queues.enqueueResearchVideo({ researchId: id, userId });
+    } catch (err) {
+      await this.usage.refund(userId, RESEARCH_VIDEO_CREDITS, {});
+      await this.prisma.researchVideo.update({
+        where: { id },
+        data: { status: "FAILED", error: "Could not queue the build", step: "Failed" },
+      });
+      throw err;
+    }
+    return this.toSummary(record);
+  }
+
   async list(userId: string): Promise<ResearchVideoSummary[]> {
     const rows = await this.prisma.researchVideo.findMany({
       where: { userId },

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, Loader2, Search, Sparkles, Trash2 } from "lucide-react";
+import { Download, Loader2, RefreshCcw, Search, Sparkles, Trash2 } from "lucide-react";
 import type { ResearchVideoSummary } from "@clipforge/shared-types";
 import { api, ApiError } from "@/lib/api";
 import { cn, formatDuration, formatRelativeTime } from "@/lib/utils";
@@ -60,6 +60,16 @@ export default function ResearchPage() {
   const remove = useMutation({
     mutationFn: (id: string) => api(`/research/${id}`, { method: "DELETE" }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["research"] }),
+  });
+
+  const retry = useMutation({
+    mutationFn: (id: string) => api(`/research/${id}/retry`, { method: "POST" }),
+    onSuccess: () => {
+      setError(null);
+      void queryClient.invalidateQueries({ queryKey: ["research"] });
+    },
+    onError: (err) =>
+      setError(err instanceof ApiError ? err.message : String(err)),
   });
 
   const busy = (videos ?? []).some((v) => BUSY_STATUSES.includes(v.status));
@@ -174,6 +184,8 @@ export default function ResearchPage() {
               <ResearchCard
                 key={video.id}
                 video={video}
+                onRetry={() => retry.mutate(video.id)}
+                retrying={retry.isPending && retry.variables === video.id}
                 onDelete={() => {
                   if (window.confirm("Delete this video?")) remove.mutate(video.id);
                 }}
@@ -189,9 +201,13 @@ export default function ResearchPage() {
 function ResearchCard({
   video,
   onDelete,
+  onRetry,
+  retrying,
 }: {
   video: ResearchVideoSummary;
   onDelete: () => void;
+  onRetry: () => void;
+  retrying: boolean;
 }) {
   const busy = BUSY_STATUSES.includes(video.status);
 
@@ -221,9 +237,19 @@ function ResearchCard({
       )}
 
       {video.status === "FAILED" && (
-        <p className="mt-3 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
-          {video.error ?? "This build failed."}
-        </p>
+        <div className="mt-3 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2">
+          <p className="text-xs text-danger">{video.error ?? "This build failed."}</p>
+          <Button
+            size="sm"
+            variant="secondary"
+            className="mt-2"
+            onClick={onRetry}
+            loading={retrying}
+          >
+            <RefreshCcw className="h-4 w-4" />
+            Try again
+          </Button>
+        </div>
       )}
 
       {video.status === "READY" && video.videoUrl && (

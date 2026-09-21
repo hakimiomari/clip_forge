@@ -35,6 +35,11 @@ export class ResearchController {
     return this.research.detail(id, user.id);
   }
 
+  @Post(":id/retry")
+  retry(@CurrentUser() user: RequestUser, @Param("id") id: string) {
+    return this.research.retry(id, user.id);
+  }
+
   @Delete(":id")
   @HttpCode(204)
   async remove(@CurrentUser() user: RequestUser, @Param("id") id: string) {
