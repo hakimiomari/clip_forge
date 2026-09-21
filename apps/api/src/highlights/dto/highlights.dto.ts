@@ -88,6 +88,26 @@ export class GenerateHighlightsDto {
   @IsBoolean()
   autoCreateClips: boolean = false;
 
+  @ApiPropertyOptional({
+    default: false,
+    description:
+      "Best-moments video: cut the moments found together into one video instead of one short each",
+  })
+  @IsOptional()
+  @IsBoolean()
+  mergeIntoOne: boolean = false;
+
+  @ApiPropertyOptional({
+    description: "Length of the best-moments video in seconds (30–180)",
+    default: 90,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(30)
+  @Max(180)
+  reelSeconds: number = 90;
+
   @ApiPropertyOptional({ default: true, description: "Burn captions into automatic shorts" })
   @IsOptional()
   @IsBoolean()

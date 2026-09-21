@@ -1,9 +1,9 @@
 import type { Job } from "bullmq";
 import { getPrismaClient } from "@clipforge/database";
 import type { HighlightGenerationJob } from "@clipforge/shared-types";
-import { CREDIT_COSTS } from "@clipforge/shared-types";
+import { buildReelParts, CREDIT_COSTS, renderCost } from "@clipforge/shared-types";
 import { analyzeMedia, SCENE_DETECT_MAX_SECONDS } from "../lib/analysis";
-import { createAutoClips } from "../lib/auto-clips";
+import { createAutoClips, createReelClip } from "../lib/auto-clips";
 import { createWorkDir, fetchToWorkDir } from "../lib/media";
 import {
   fetchYouTubeInfo,
@@ -290,8 +290,45 @@ export async function processHighlightGeneration(
     });
     await emit("READY", 100, `Found ${saved.length} highlight${saved.length === 1 ? "" : "s"}`);
 
-    // ── 5. Automatic mode: render a short per moment ─────
-    if (options.autoCreateClips) {
+    // ── 5a. Best-moments video: every moment in one video ─
+    if (options.mergeIntoOne) {
+      const parts = buildReelParts(
+        saved.map((h) => ({ start: h.startTime, end: h.endTime, score: h.score ?? 0 })),
+        options.reelSeconds ?? 90,
+      ).map(({ start, end }) => ({ start, end }));
+      const reelSeconds = parts.reduce((sum, p) => sum + (p.end - p.start), 0);
+      // Paid for the length asked; a shorter cut costs less to render
+      const paid = options.autoRenderCreditsPerClip ?? 0;
+      const cost = Math.min(paid, renderCost(reelSeconds));
+      if (paid > cost) {
+        await refundCredits(userId, paid - cost, { projectId });
+      }
+
+      await emit(
+        "RENDERING",
+        100,
+        `Joining ${parts.length} best moments into one video`,
+      );
+      await createReelClip({
+        projectId,
+        userId,
+        parts,
+        format: options.format,
+        captionStyle: options.captionStyle,
+        options: options.autoClipOptions ?? {
+          captionsEnabled: true,
+          zoomEnabled: true,
+          backgroundMode: "blur",
+          ctaEnabled: true,
+        },
+        credits: cost,
+        transcript: segments,
+        sourceTitle: source.title,
+        sourceUrl: project.sourceUrl,
+      });
+    }
+    // ── 5b. Automatic mode: render a short per moment ─────
+    else if (options.autoCreateClips) {
       const perClip = options.autoRenderCreditsPerClip ?? 0;
       // Fewer moments than paid for (a short or repetitive video) — give
       // the difference back before queueing what we did find

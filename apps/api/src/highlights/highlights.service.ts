@@ -3,7 +3,12 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import { CREDIT_COSTS, renderCost } from "@clipforge/shared-types";
+import {
+  CREDIT_COSTS,
+  REEL_MOMENT_SECONDS,
+  reelCandidateCount,
+  renderCost,
+} from "@clipforge/shared-types";
 import { hasProcessableMedia } from "../common/media-source";
 import { PrismaService } from "../prisma/prisma.service";
 import { ProjectsService } from "../projects/projects.service";
@@ -37,17 +42,30 @@ export class HighlightsService {
         "Import a video before generating highlights.",
       );
     }
-    if (dto.clipDuration >= source.duration) {
+    if (dto.mergeIntoOne) {
+      // A best-moments video has to leave something out to be worth it
+      if (dto.reelSeconds >= source.duration * 0.8) {
+        throw new BadRequestException(
+          `The video is only ${Math.floor(source.duration)}s long — choose a shorter best-moments video.`,
+        );
+      }
+    } else if (dto.clipDuration >= source.duration) {
       throw new BadRequestException(
         `Clip duration (${dto.clipDuration}s) must be shorter than the video (${Math.floor(source.duration)}s).`,
       );
     }
 
     // Automatic mode renders a short per moment, so the renders are paid
-    // for up front; the worker refunds any short it doesn't produce.
-    const perClipCredits = dto.autoCreateClips ? renderCost(dto.clipDuration) : 0;
+    // for up front; the worker refunds any short it doesn't produce. A
+    // best-moments video is a single render of its full length.
+    const merge = dto.mergeIntoOne;
+    const perClipCredits = merge
+      ? renderCost(dto.reelSeconds)
+      : dto.autoCreateClips
+        ? renderCost(dto.clipDuration)
+        : 0;
     const totalCredits =
-      CREDIT_COSTS.generateHighlights + perClipCredits * dto.clipCount;
+      CREDIT_COSTS.generateHighlights + perClipCredits * (merge ? 1 : dto.clipCount);
 
     await this.usage.spend(userId, totalCredits, "GENERATE_HIGHLIGHTS", {
       projectId,
@@ -62,14 +80,17 @@ export class HighlightsService {
         userId,
         chargedCredits: totalCredits,
         options: {
-          clipDuration: dto.clipDuration,
-          clipCount: dto.clipCount,
+          // The selector looks for short moments when they'll be merged
+          clipDuration: merge ? REEL_MOMENT_SECONDS : dto.clipDuration,
+          clipCount: merge ? reelCandidateCount(dto.reelSeconds) : dto.clipCount,
           format: dto.format,
           editingStyle: dto.editingStyle,
           captionStyle: dto.captionStyle,
           useTranscript: dto.useTranscript,
-          autoCreateClips: dto.autoCreateClips,
+          autoCreateClips: dto.autoCreateClips || merge,
           autoRenderCreditsPerClip: perClipCredits,
+          mergeIntoOne: merge,
+          reelSeconds: merge ? dto.reelSeconds : undefined,
           autoClipOptions: {
             captionsEnabled: dto.captionsEnabled,
             zoomEnabled: dto.zoomEnabled,
@@ -81,7 +102,8 @@ export class HighlightsService {
       return {
         ok: true,
         status: "ANALYZING",
-        autoCreateClips: dto.autoCreateClips,
+        autoCreateClips: dto.autoCreateClips || merge,
+        mergeIntoOne: merge,
         creditsCharged: totalCredits,
       };
     } catch (err) {

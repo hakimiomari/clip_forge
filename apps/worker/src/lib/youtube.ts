@@ -3,7 +3,7 @@ import { existsSync } from "fs";
 import { readdir, readFile, stat } from "fs/promises";
 import path from "path";
 import { env, FFMPEG, YTDLP } from "../env";
-import { track } from "./children";
+import { killTree, track } from "./children";
 
 /**
  * YouTube sources are never downloaded in full. Import reads metadata,
@@ -53,12 +53,14 @@ function runYtDlp(
   onLine?: (line: string) => void,
 ): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const child = track(spawn(YTDLP, args, { windowsHide: true }));
+    // Own process group, so a timeout also takes down the ffmpeg that
+    // yt-dlp spawns for section downloads and merges
+    const child = track(spawn(YTDLP, args, { windowsHide: true, detached: true }));
     let stdout = "";
     let stderr = "";
     let pendingLine = "";
     const timeout = setTimeout(() => {
-      child.kill("SIGKILL");
+      killTree(child);
       reject(new Error(`YouTube request timed out after ${Math.round(timeoutMs / 60_000)} min`));
     }, timeoutMs);
     child.stdout.on("data", (d: Buffer) => {
@@ -459,24 +461,40 @@ export async function downloadYouTubeSection(
         "--no-progress",
         "--download-sections", `*${start.toFixed(3)}-${end.toFixed(3)}`,
         "--force-keyframes-at-cuts",
+        // YouTube sometimes stops sending mid-stream without closing the
+        // connection; ffmpeg would wait on it forever. Give up after 30s
+        // of silence so the retry below gets a fresh URL instead.
+        "--downloader-args", "ffmpeg_i:-rw_timeout 30000000",
         "-f", format,
         "--merge-output-format", "mp4",
         "-o", outputPath,
         "--", watchUrl(videoId),
       ],
-      // Section fetches re-encode at the cut; allow ~4x realtime plus slack
-      Math.max(5 * 60_000, seconds * 4_000),
+      // Section fetches re-encode at the cut; a healthy one takes well
+      // under a minute, so past 3 min it is stuck, not slow
+      Math.max(3 * 60_000, seconds * 4_000),
     );
 
-  try {
-    await attempt(CLIP_FORMAT);
-  } catch (err) {
-    // Transient CDN errors and encoder memory failures both deserve one
-    // cheaper retry at lower resolution before giving up.
-    console.warn(
-      `YouTube section fetch failed at 720p, retrying at 480p: ${String(err).slice(0, 200)}`,
-    );
-    await attempt(CLIP_FORMAT_FALLBACK);
+  // YouTube refuses the odd stream URL (403) at random. Each attempt
+  // asks for fresh signed URLs, so the same quality usually works a few
+  // seconds later; only after that is 480p worth the quality loss.
+  const plan: Array<{ format: string; label: string; pauseMs: number }> = [
+    { format: CLIP_FORMAT, label: "720p", pauseMs: 0 },
+    { format: CLIP_FORMAT, label: "720p", pauseMs: 3_000 },
+    { format: CLIP_FORMAT_FALLBACK, label: "480p", pauseMs: 5_000 },
+  ];
+  for (const [i, step] of plan.entries()) {
+    if (step.pauseMs > 0) await new Promise((r) => setTimeout(r, step.pauseMs));
+    try {
+      await attempt(step.format);
+      break;
+    } catch (err) {
+      if (i === plan.length - 1) throw err;
+      console.warn(
+        `YouTube section fetch failed at ${step.label} (attempt ${i + 1}), ` +
+          `retrying: ${String(err).slice(0, 200)}`,
+      );
+    }
   }
   const exists = await stat(outputPath).then(() => true, () => false);
   if (!exists) throw new Error("YouTube: section download produced no file");

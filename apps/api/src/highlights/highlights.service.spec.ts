@@ -52,6 +52,8 @@ const dto = (overrides: Partial<GenerateHighlightsDto> = {}) =>
     captionStyle: "bold_dynamic",
     useTranscript: true,
     autoCreateClips: false,
+    mergeIntoOne: false,
+    reelSeconds: 90,
     captionsEnabled: true,
     zoomEnabled: true,
     backgroundMode: "blur",
@@ -90,6 +92,41 @@ describe("HighlightsService.generate", () => {
         }),
       }),
     );
+  });
+
+  it("charges one render for a best-moments video and asks for short moments", async () => {
+    const { service, usage, queues } = makeService();
+    const result = await service.generate(
+      "p1",
+      OWNER,
+      dto({ mergeIntoOne: true, reelSeconds: 120, clipCount: 1, clipDuration: 60 }),
+    );
+    // 2 to find the moments + one 120s render (8), whatever clipCount says
+    expect(usage.spend).toHaveBeenCalledWith(OWNER, 10, "GENERATE_HIGHLIGHTS", {
+      projectId: "p1",
+    });
+    expect(result).toMatchObject({ mergeIntoOne: true, creditsCharged: 10 });
+    expect(queues.enqueueHighlightGeneration).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({
+          autoCreateClips: true,
+          mergeIntoOne: true,
+          reelSeconds: 120,
+          autoRenderCreditsPerClip: 8,
+          clipDuration: 15,
+          // 8 moments of 15s, plus spares for overlap
+          clipCount: 12,
+        }),
+      }),
+    );
+  });
+
+  it("rejects a best-moments video nearly as long as the source", async () => {
+    const { service, usage } = makeService({ duration: 100 });
+    await expect(
+      service.generate("p1", OWNER, dto({ mergeIntoOne: true, reelSeconds: 90, clipDuration: 15 })),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(usage.spend).not.toHaveBeenCalled();
   });
 
   it("refunds everything when the job cannot be queued", async () => {

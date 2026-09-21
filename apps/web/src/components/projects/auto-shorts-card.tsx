@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Wand2 } from "lucide-react";
+import { REEL_LENGTHS } from "@clipforge/shared-types";
 import { api, ApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -30,6 +31,8 @@ function renderCost(seconds: number): number {
  */
 export function AutoShortsCard({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient();
+  const [mode, setMode] = useState<"separate" | "merged">("separate");
+  const [reelSeconds, setReelSeconds] = useState<number>(90);
   const [length, setLength] = useState<number>(30);
   const [count, setCount] = useState<number>(3);
   const [format, setFormat] = useState("vertical");
@@ -40,7 +43,11 @@ export function AutoShortsCard({ projectId }: { projectId: string }) {
   const [ctaEnabled, setCtaEnabled] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const totalCredits = 2 + count * renderCost(length);
+  const merged = mode === "merged";
+  const renderCredits = merged
+    ? renderCost(reelSeconds)
+    : count * renderCost(length);
+  const totalCredits = 2 + renderCredits;
 
   const run = useMutation({
     mutationFn: () =>
@@ -52,6 +59,8 @@ export function AutoShortsCard({ projectId }: { projectId: string }) {
           format,
           captionStyle,
           autoCreateClips: true,
+          mergeIntoOne: merged,
+          reelSeconds,
           captionsEnabled,
           zoomEnabled,
           backgroundMode,
@@ -73,31 +82,71 @@ export function AutoShortsCard({ projectId }: { projectId: string }) {
         <CardTitle>Automatic shorts</CardTitle>
       </div>
       <CardDescription className="mt-1">
-        One run: ClipForge finds the best moments and renders a finished short
-        for each one. You can close the page — it keeps going.
+        {merged
+          ? "One run: ClipForge finds the best moments and joins them, in the order they happen, into one video."
+          : "One run: ClipForge finds the best moments and renders a finished short for each one."}{" "}
+        You can close the page — it keeps going.
       </CardDescription>
 
       <div className="mt-5 space-y-4">
         <div>
-          <Label>Length of each short</Label>
+          <Label>What to make</Label>
           <div className="flex flex-wrap gap-2">
-            {LENGTHS.map((l) => (
-              <OptionChip key={l} active={length === l} onClick={() => setLength(l)}>
-                {l}s
-              </OptionChip>
-            ))}
+            <OptionChip active={!merged} onClick={() => setMode("separate")}>
+              Separate shorts
+            </OptionChip>
+            <OptionChip active={merged} onClick={() => setMode("merged")}>
+              One best-moments video
+            </OptionChip>
           </div>
         </div>
-        <div>
-          <Label>How many shorts</Label>
-          <div className="flex flex-wrap gap-2">
-            {COUNTS.map((c) => (
-              <OptionChip key={c} active={count === c} onClick={() => setCount(c)}>
-                {c}
-              </OptionChip>
-            ))}
+        {merged ? (
+          <div>
+            <Label>Video length</Label>
+            <div className="flex flex-wrap gap-2">
+              {REEL_LENGTHS.map((l) => (
+                <OptionChip
+                  key={l}
+                  active={reelSeconds === l}
+                  onClick={() => setReelSeconds(l)}
+                >
+                  {l < 120 ? `${l}s` : `${l / 60} min`}
+                </OptionChip>
+              ))}
+            </div>
           </div>
-        </div>
+        ) : (
+          <>
+            <div>
+              <Label>Length of each short</Label>
+              <div className="flex flex-wrap gap-2">
+                {LENGTHS.map((l) => (
+                  <OptionChip
+                    key={l}
+                    active={length === l}
+                    onClick={() => setLength(l)}
+                  >
+                    {l}s
+                  </OptionChip>
+                ))}
+              </div>
+            </div>
+            <div>
+              <Label>How many shorts</Label>
+              <div className="flex flex-wrap gap-2">
+                {COUNTS.map((c) => (
+                  <OptionChip
+                    key={c}
+                    active={count === c}
+                    onClick={() => setCount(c)}
+                  >
+                    {c}
+                  </OptionChip>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
         <div>
           <Label>Format</Label>
           <div className="flex flex-wrap gap-2">
@@ -179,11 +228,14 @@ export function AutoShortsCard({ projectId }: { projectId: string }) {
           loading={run.isPending}
         >
           <Wand2 className="h-4 w-4" />
-          Make {count} short{count === 1 ? "" : "s"} automatically
+          {merged
+            ? "Make my best-moments video"
+            : `Make ${count} short${count === 1 ? "" : "s"} automatically`}
         </Button>
         <p className="text-center text-xs text-muted">
-          {totalCredits} credits (2 to find the moments, {renderCost(length)} per
-          short). Unused credits are returned if fewer moments are found.
+          {merged
+            ? `${totalCredits} credits (2 to find the moments, ${renderCredits} to render). Returned in part if the video comes out shorter.`
+            : `${totalCredits} credits (2 to find the moments, ${renderCost(length)} per short). Unused credits are returned if fewer moments are found.`}
         </p>
         <FieldError message={error ?? undefined} />
       </div>

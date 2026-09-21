@@ -40,8 +40,21 @@ const registry: Array<{ queue: string; processor: Processor<any>; concurrency: n
   { queue: QUEUES.COMPILATION, processor: processCompilation, concurrency: 1 },
 ];
 
+/**
+ * How long a job's lock survives without renewal. BullMQ's 30s default
+ * treats any longer pause as a dead worker and re-runs the job from the
+ * start — and macOS delays background timers on an idle machine well
+ * past 30s, which was restarting 30-minute renders. Two minutes still
+ * catches a worker that really died.
+ */
+const LOCK_DURATION_MS = 120_000;
+
 const workers = registry.map(({ queue, processor, concurrency }) => {
-  const worker = new Worker(queue, processor, { connection, concurrency });
+  const worker = new Worker(queue, processor, {
+    connection,
+    concurrency,
+    lockDuration: LOCK_DURATION_MS,
+  });
   worker.on("completed", (job) => {
     console.log(`[${queue}] job ${job.id} completed`);
   });

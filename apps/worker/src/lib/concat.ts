@@ -29,7 +29,17 @@ export interface ConcatPart {
 export function buildConcatArgs(
   parts: ConcatPart[],
   outputPath: string,
-  options: { hasAudio: boolean; fps?: number; threads?: number },
+  options: {
+    hasAudio: boolean;
+    fps?: number;
+    threads?: number;
+    /**
+     * Frame size every part is fitted to. Parts can differ — a YouTube
+     * part that failed at 720p is re-fetched at 480p — and the concat
+     * filter rejects mismatched sizes outright.
+     */
+    size?: { width: number; height: number };
+  },
 ): string[] {
   if (parts.length < 2) {
     throw new Error("buildConcatArgs needs at least two parts");
@@ -48,8 +58,14 @@ export function buildConcatArgs(
   // pixel aspect and (for audio) sample format across every input.
   const chains: string[] = [];
   const labels: string[] = [];
+  const { size } = options;
+  // Letterbox rather than stretch a part whose shape differs
+  const fit = size
+    ? `scale=${size.width}:${size.height}:force_original_aspect_ratio=decrease,` +
+      `pad=${size.width}:${size.height}:(ow-iw)/2:(oh-ih)/2,`
+    : "";
   parts.forEach((_, i) => {
-    chains.push(`[${i}:v]fps=${fps},setsar=1,setpts=PTS-STARTPTS[cv${i}]`);
+    chains.push(`[${i}:v]${fit}fps=${fps},setsar=1,setpts=PTS-STARTPTS[cv${i}]`);
     labels.push(`[cv${i}]`);
     if (options.hasAudio) {
       chains.push(
@@ -90,7 +106,7 @@ export function buildConcatArgs(
 export async function concatParts(
   parts: ConcatPart[],
   outputPath: string,
-  options: { hasAudio: boolean; fps?: number; threads?: number },
+  options: Parameters<typeof buildConcatArgs>[2],
 ): Promise<void> {
   const args = buildConcatArgs(parts, outputPath, options);
   await new Promise<void>((resolve, reject) => {
