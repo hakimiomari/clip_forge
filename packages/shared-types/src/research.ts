@@ -9,6 +9,28 @@
 
 export type ResearchFormat = "vertical" | "square" | "landscape";
 
+/**
+ * Cartoon look applied to every scene's picture before it is composed.
+ * "none" keeps the photographs as they are. Stylizing the media rather
+ * than the finished scene keeps captions and credits crisp.
+ */
+export type ResearchCartoonStyle = "none" | "hayao" | "shinkai" | "ai";
+
+export const RESEARCH_CARTOON_STYLES: ResearchCartoonStyle[] = [
+  "none",
+  "hayao",
+  "shinkai",
+  "ai",
+];
+
+/**
+ * "ai" replaces the photograph entirely: each scene's picture is drawn
+ * from its own sentence. Nothing it shows is evidence of anything, so
+ * videos built this way say so in their description.
+ */
+export const AI_ILLUSTRATION_NOTE =
+  "Scenes illustrated by AI from the article's own sentences — the pictures are imagined, not photographs.";
+
 export interface ResearchMedia {
   kind: "image" | "video";
   /** Where the file came from, for the credits and for re-fetching */
@@ -43,6 +65,7 @@ export interface ResearchVideoSummary {
   status: "PENDING" | "RESEARCHING" | "BUILDING" | "RENDERING" | "READY" | "FAILED";
   error: string | null;
   format: string;
+  cartoonStyle: ResearchCartoonStyle;
   progress: number;
   step: string | null;
   duration: number | null;

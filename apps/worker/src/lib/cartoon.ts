@@ -2,7 +2,7 @@ import { spawn } from "child_process";
 import { existsSync } from "fs";
 import { mkdir, rename, writeFile } from "fs/promises";
 import path from "path";
-import { FFMPEG } from "../env";
+import { FFMPEG, FFPROBE } from "../env";
 import { track } from "./children";
 
 /**
@@ -233,4 +233,181 @@ export async function stylizeVideo(options: {
   await encoderExit;
   if (frames === 0) throw new Error("Cartoon stylization produced no frames");
   return frames;
+}
+
+/**
+ * Sessions are cached per style: a research video stylizes up to eight
+ * pictures in a row, and rebuilding the session for each one costs more
+ * than the inference itself.
+ */
+const sessionCache = new Map<CartoonStyle, Promise<CartoonSession>>();
+
+interface CartoonSession {
+  run(input: Float32Array, height: number, width: number): Promise<Float32Array>;
+}
+
+async function getCartoonSession(style: CartoonStyle): Promise<CartoonSession> {
+  let cached = sessionCache.get(style);
+  if (!cached) {
+    cached = (async () => {
+      const ort = await import("onnxruntime-node");
+      const modelPath = await ensureCartoonModel(style);
+      const session = await ort.InferenceSession.create(modelPath, {
+        executionProviders: ["cpu"],
+        graphOptimizationLevel: "all",
+      });
+      const inputName = session.inputNames[0]!;
+      const outputName = session.outputNames[0]!;
+      return {
+        async run(input: Float32Array, height: number, width: number) {
+          const result = await session.run({
+            [inputName]: new ort.Tensor("float32", input, [1, height, width, 3]),
+          });
+          return result[outputName]!.data as Float32Array;
+        },
+      };
+    })();
+    sessionCache.set(style, cached);
+  }
+  return cached;
+}
+
+/** Pixel dimensions of an image or the first video frame. */
+export async function probePixelSize(
+  filePath: string,
+): Promise<{ width: number; height: number }> {
+  const args = [
+    "-v", "error",
+    "-select_streams", "v:0",
+    "-show_entries", "stream=width,height",
+    "-of", "csv=p=0:s=x",
+    filePath,
+  ];
+  const stdout = await new Promise<string>((resolve, reject) => {
+    const child = track(spawn(FFPROBE, args, { windowsHide: true }));
+    let out = "";
+    let err = "";
+    child.stdout.on("data", (d: Buffer) => (out += d.toString()));
+    child.stderr.on("data", (d: Buffer) => (err += d.toString().slice(-2000)));
+    child.on("error", (e) => reject(new Error(`ffprobe failed to start: ${e.message}`)));
+    child.on("close", (code) =>
+      code === 0 ? resolve(out) : reject(new Error(`ffprobe failed: ${err.slice(-300)}`)),
+    );
+  });
+  const [w, h] = stdout.trim().split(/\r?\n/)[0]!.split("x").map(Number);
+  if (!w || !h) throw new Error(`could not read dimensions of ${path.basename(filePath)}`);
+  return { width: w, height: h };
+}
+
+/**
+ * Stylizes a single picture. A still needs one inference rather than one
+ * per frame, so research scenes built from photographs cost a fraction
+ * of what stylizing their rendered video would.
+ */
+/** Model activations grow with the frame; this is where CPU RAM gives out. */
+function isAllocationFailure(err: unknown): boolean {
+  return /Failed to allocate|bad_alloc|Cannot allocate memory|out of memory/i.test(
+    String(err),
+  );
+}
+
+/** Default for a single picture: sharp enough for a 1080-wide frame. */
+export const IMAGE_LONG_EDGE = 1024;
+const MIN_IMAGE_LONG_EDGE = 384;
+
+export async function stylizeImage(options: {
+  inputPath: string;
+  outPath: string;
+  style: CartoonStyle;
+  longEdge?: number;
+}): Promise<void> {
+  let longEdge = options.longEdge ?? IMAGE_LONG_EDGE;
+  for (;;) {
+    try {
+      await stylizeImageAt({ ...options, longEdge });
+      return;
+    } catch (err) {
+      // A big photograph can ask for more memory than the machine has
+      // free; halving the model input is far better than losing the scene
+      if (!isAllocationFailure(err) || longEdge <= MIN_IMAGE_LONG_EDGE) throw err;
+      longEdge = Math.max(MIN_IMAGE_LONG_EDGE, Math.floor(longEdge / 2));
+      console.warn(
+        `Cartoon ran out of memory, retrying at ${longEdge}px: ${String(err).slice(0, 120)}`,
+      );
+    }
+  }
+}
+
+async function stylizeImageAt(options: {
+  inputPath: string;
+  outPath: string;
+  style: CartoonStyle;
+  longEdge: number;
+}): Promise<void> {
+  const session = await getCartoonSession(options.style);
+  const source = await probePixelSize(options.inputPath);
+  const { width, height } = modelDimensions(
+    source.width,
+    source.height,
+    options.longEdge,
+  );
+  const frameBytes = width * height * 3;
+
+  const decoded = await new Promise<Buffer>((resolve, reject) => {
+    const child = track(
+      spawn(
+        FFMPEG,
+        [
+          "-nostdin", "-hide_banner", "-loglevel", "error",
+          "-i", options.inputPath,
+          "-frames:v", "1",
+          "-vf", `scale=${width}:${height}:flags=lanczos`,
+          "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1",
+        ],
+        { windowsHide: true },
+      ),
+    );
+    const parts: Buffer[] = [];
+    let err = "";
+    child.stdout.on("data", (d: Buffer) => parts.push(d));
+    child.stderr.on("data", (d: Buffer) => (err += d.toString().slice(-2000)));
+    child.on("error", (e) => reject(new Error(`cartoon image read failed: ${e.message}`)));
+    child.on("close", (code) =>
+      code === 0
+        ? resolve(Buffer.concat(parts))
+        : reject(new Error(`cartoon image read failed: ${err.slice(-300)}`)),
+    );
+  });
+  if (decoded.length < frameBytes) {
+    throw new Error("cartoon image read produced no frame");
+  }
+
+  const input = new Float32Array(frameBytes);
+  for (let i = 0; i < frameBytes; i++) input[i] = toModelValue(decoded[i]!);
+  const values = await session.run(input, height, width);
+  const out = Buffer.alloc(frameBytes);
+  for (let i = 0; i < frameBytes; i++) out[i] = fromModelValue(values[i]!);
+
+  await new Promise<void>((resolve, reject) => {
+    const child = track(
+      spawn(
+        FFMPEG,
+        [
+          "-nostdin", "-hide_banner", "-loglevel", "error",
+          "-f", "rawvideo", "-pix_fmt", "rgb24",
+          "-s", `${width}x${height}`,
+          "-i", "pipe:0",
+          "-frames:v", "1", "-y", options.outPath,
+        ],
+        { windowsHide: true },
+      ),
+    );
+    let err = "";
+    child.stderr.on("data", (d: Buffer) => (err += d.toString().slice(-2000)));
+    child.on("error", (e) => reject(new Error(`cartoon image write failed: ${e.message}`)));
+    child.on("close", (code) =>
+      code === 0 ? resolve() : reject(new Error(`cartoon image write failed: ${err.slice(-300)}`)),
+    );
+    child.stdin.end(out);
+  });
 }

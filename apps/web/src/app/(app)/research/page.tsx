@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, Loader2, Search, Sparkles, Trash2 } from "lucide-react";
+import { Download, Loader2, RefreshCcw, Search, Sparkles, Trash2 } from "lucide-react";
 import type { ResearchVideoSummary } from "@clipforge/shared-types";
 import { api, ApiError } from "@/lib/api";
 import { cn, formatDuration, formatRelativeTime } from "@/lib/utils";
@@ -19,10 +19,27 @@ const FORMATS = [
   { value: "landscape", label: "Landscape 16:9" },
 ] as const;
 
+const CARTOON_STYLES = [
+  { value: "none", label: "Photos", hint: "The pictures as they are" },
+  { value: "hayao", label: "Hayao", hint: "Ghibli-like: soft, painterly" },
+  { value: "shinkai", label: "Shinkai", hint: "High contrast, vivid skies" },
+  { value: "ai", label: "AI drawn", hint: "Each scene drawn from its sentence" },
+] as const;
+
+const LOOK_NOTES: Record<string, string> = {
+  none: "Scenes use the original photographs.",
+  hayao:
+    "Each photograph is redrawn by a local AnimeGANv3 model — adds a few minutes to the build.",
+  shinkai:
+    "Each photograph is redrawn by a local AnimeGANv3 model — adds a few minutes to the build.",
+  ai: "No photographs: every scene is drawn from its own sentence by a free image service. The pictures are imagined, not evidence — and the prompts leave your machine.",
+};
+
 export default function ResearchPage() {
   const queryClient = useQueryClient();
   const [prompt, setPrompt] = useState("");
   const [format, setFormat] = useState("vertical");
+  const [cartoonStyle, setCartoonStyle] = useState("none");
   const [error, setError] = useState<string | null>(null);
 
   const { data: videos, isLoading } = useQuery({
@@ -39,7 +56,7 @@ export default function ResearchPage() {
     mutationFn: () =>
       api<ResearchVideoSummary>("/research", {
         method: "POST",
-        body: { prompt: prompt.trim(), format },
+        body: { prompt: prompt.trim(), format, cartoonStyle },
       }),
     onSuccess: () => {
       setError(null);
@@ -53,6 +70,16 @@ export default function ResearchPage() {
   const remove = useMutation({
     mutationFn: (id: string) => api(`/research/${id}`, { method: "DELETE" }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["research"] }),
+  });
+
+  const retry = useMutation({
+    mutationFn: (id: string) => api(`/research/${id}/retry`, { method: "POST" }),
+    onSuccess: () => {
+      setError(null);
+      void queryClient.invalidateQueries({ queryKey: ["research"] });
+    },
+    onError: (err) =>
+      setError(err instanceof ApiError ? err.message : String(err)),
   });
 
   const busy = (videos ?? []).some((v) => BUSY_STATUSES.includes(v.status));
@@ -104,6 +131,30 @@ export default function ResearchPage() {
           </div>
         </div>
 
+        <div className="mt-4">
+          <Label>Look</Label>
+          <div className="flex flex-wrap gap-2">
+            {CARTOON_STYLES.map((s) => (
+              <button
+                key={s.value}
+                type="button"
+                title={s.hint}
+                aria-pressed={cartoonStyle === s.value}
+                onClick={() => setCartoonStyle(s.value)}
+                className={cn(
+                  "rounded-lg border px-3 py-1.5 text-sm transition-colors",
+                  cartoonStyle === s.value
+                    ? "border-accent bg-accent/15 text-accent"
+                    : "border-border text-muted hover:border-border-strong hover:text-foreground",
+                )}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1.5 text-xs text-muted">{LOOK_NOTES[cartoonStyle]}</p>
+        </div>
+
         <Button
           className="mt-5 w-full"
           onClick={() => create.mutate()}
@@ -139,6 +190,8 @@ export default function ResearchPage() {
               <ResearchCard
                 key={video.id}
                 video={video}
+                onRetry={() => retry.mutate(video.id)}
+                retrying={retry.isPending && retry.variables === video.id}
                 onDelete={() => {
                   if (window.confirm("Delete this video?")) remove.mutate(video.id);
                 }}
@@ -154,9 +207,13 @@ export default function ResearchPage() {
 function ResearchCard({
   video,
   onDelete,
+  onRetry,
+  retrying,
 }: {
   video: ResearchVideoSummary;
   onDelete: () => void;
+  onRetry: () => void;
+  retrying: boolean;
 }) {
   const busy = BUSY_STATUSES.includes(video.status);
 
@@ -167,6 +224,9 @@ function ResearchCard({
           <CardTitle className="truncate">{video.title ?? video.prompt}</CardTitle>
           <p className="mt-0.5 text-xs text-muted">
             “{video.prompt}” · {video.format}
+            {video.cartoonStyle && video.cartoonStyle !== "none"
+              ? ` · ${video.cartoonStyle} cartoon`
+              : ""}
             {video.duration ? ` · ${formatDuration(video.duration)}` : ""} ·{" "}
             {formatRelativeTime(video.createdAt)}
           </p>
@@ -183,9 +243,19 @@ function ResearchCard({
       )}
 
       {video.status === "FAILED" && (
-        <p className="mt-3 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
-          {video.error ?? "This build failed."}
-        </p>
+        <div className="mt-3 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2">
+          <p className="text-xs text-danger">{video.error ?? "This build failed."}</p>
+          <Button
+            size="sm"
+            variant="secondary"
+            className="mt-2"
+            onClick={onRetry}
+            loading={retrying}
+          >
+            <RefreshCcw className="h-4 w-4" />
+            Try again
+          </Button>
+        </div>
       )}
 
       {video.status === "READY" && video.videoUrl && (

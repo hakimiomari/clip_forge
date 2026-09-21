@@ -406,6 +406,8 @@ model ResearchVideo {
   status       ResearchStatus @default(PENDING)
   error        String?
   format       String         @default("vertical")
+  /** none | hayao | shinkai — AnimeGANv3 look applied to each scene's media */
+  cartoonStyle String         @default("none")
   // Scenes actually used, with their media and attribution (see
   // shared-types ResearchScene) — kept so the result is auditable
   scenes       Json?
