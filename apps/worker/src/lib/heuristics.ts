@@ -49,8 +49,14 @@ export function selectHighlights(options: {
   count: number;
   analysis: MediaAnalysis;
   transcript?: TranscriptSegmentLite[];
+  /**
+   * Shortest window worth scoring. 15s suits a standalone clip; a
+   * compilation strings together short moments and passes less.
+   */
+  minWindowSeconds?: number;
 }): HighlightCandidate[] {
   const { duration, analysis } = options;
+  const minWindow = options.minWindowSeconds ?? 15;
   const targetLength = Math.min(options.targetLength, Math.max(10, duration));
   const energy = analysis.energyPerSecond;
   if (duration <= 0) return [];
@@ -66,7 +72,7 @@ export function selectHighlights(options: {
 
   for (let start = 0; start <= Math.max(0, duration - targetLength * 0.6); start += step) {
     const end = Math.min(duration, start + targetLength);
-    if (end - start < Math.min(15, duration * 0.9)) continue;
+    if (end - start < Math.min(minWindow, duration * 0.9)) continue;
 
     const bin0 = Math.floor(start);
     const bin1 = Math.min(energy.length, Math.ceil(end));

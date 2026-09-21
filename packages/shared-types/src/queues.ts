@@ -16,6 +16,7 @@ export const QUEUES = {
   CLEANUP_FILES: "cleanup-files",
   FILMSTRIP: "filmstrip",
   RESEARCH_VIDEO: "research-video",
+  COMPILATION: "compilation",
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
@@ -95,6 +96,12 @@ export interface QualityCheckJob {
 
 export interface CleanupFilesJob {
   storageKeys: string[];
+}
+
+/** Builds a best-of compilation from moments found across YouTube. */
+export interface CompilationJob {
+  compilationId: string;
+  userId: string;
 }
 
 /** Builds a video about a topic from openly-licensed research. */

@@ -17,6 +17,7 @@ import { EventsModule } from "./events/events.module";
 import { HealthModule } from "./health/health.module";
 import { DashboardModule } from "./dashboard/dashboard.module";
 import { ResearchModule } from "./research/research.module";
+import { CompilationsModule } from "./compilations/compilations.module";
 import { JwtAuthGuard } from "./common/guards/jwt-auth.guard";
 
 @Module({
@@ -45,6 +46,7 @@ import { JwtAuthGuard } from "./common/guards/jwt-auth.guard";
     EventsModule,
     DashboardModule,
     ResearchModule,
+    CompilationsModule,
     HealthModule,
   ],
   providers: [

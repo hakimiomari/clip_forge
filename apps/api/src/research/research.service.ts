@@ -33,7 +33,7 @@ export class ResearchService {
     // One build at a time per user: each one holds the single research
     // worker slot, so queueing several just makes them all slower
     const running = await this.prisma.researchVideo.count({
-      where: { userId, status: { in: BUSY as never[] } },
+      where: { userId, kind: "RESEARCH", status: { in: BUSY as never[] } },
     });
     if (running > 0) {
       throw new BadRequestException(
@@ -79,7 +79,7 @@ export class ResearchService {
       throw new BadRequestException("Only a failed video can be built again");
     }
     const running = await this.prisma.researchVideo.count({
-      where: { userId, status: { in: BUSY as never[] } },
+      where: { userId, kind: "RESEARCH", status: { in: BUSY as never[] } },
     });
     if (running > 0) {
       throw new BadRequestException(
@@ -118,7 +118,7 @@ export class ResearchService {
 
   async list(userId: string): Promise<ResearchVideoSummary[]> {
     const rows = await this.prisma.researchVideo.findMany({
-      where: { userId },
+      where: { userId, kind: "RESEARCH" },
       orderBy: { createdAt: "desc" },
       take: 50,
     });
@@ -142,7 +142,7 @@ export class ResearchService {
   /** Ownership check that hides existence, like the rest of the API. */
   private async getOwned(id: string, userId: string) {
     const row = await this.prisma.researchVideo.findUnique({ where: { id } });
-    if (!row || row.userId !== userId) {
+    if (!row || row.userId !== userId || row.kind !== "RESEARCH") {
       throw new NotFoundException("Research video not found");
     }
     return row;
