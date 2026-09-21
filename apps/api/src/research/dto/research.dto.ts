@@ -17,13 +17,14 @@ export class CreateResearchVideoDto {
   format: string = "vertical";
 
   @ApiPropertyOptional({
-    enum: ["none", "hayao", "shinkai"],
+    enum: ["none", "hayao", "shinkai", "ai"],
     default: "none",
     description:
-      "Cartoon look for every scene's picture: hayao (Ghibli-like) or " +
-      "shinkai (high contrast, saturated). Adds render time.",
+      "Look for every scene's picture. hayao/shinkai redraw the Commons " +
+      "photograph locally; ai draws the scene from its sentence instead " +
+      "of using a photograph at all. All three add build time.",
   })
   @IsOptional()
-  @IsIn(["none", "hayao", "shinkai"])
+  @IsIn(["none", "hayao", "shinkai", "ai"])
   cartoonStyle: string = "none";
 }

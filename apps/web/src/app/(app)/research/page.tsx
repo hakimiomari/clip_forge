@@ -23,7 +23,17 @@ const CARTOON_STYLES = [
   { value: "none", label: "Photos", hint: "The pictures as they are" },
   { value: "hayao", label: "Hayao", hint: "Ghibli-like: soft, painterly" },
   { value: "shinkai", label: "Shinkai", hint: "High contrast, vivid skies" },
+  { value: "ai", label: "AI drawn", hint: "Each scene drawn from its sentence" },
 ] as const;
+
+const LOOK_NOTES: Record<string, string> = {
+  none: "Scenes use the original photographs.",
+  hayao:
+    "Each photograph is redrawn by a local AnimeGANv3 model — adds a few minutes to the build.",
+  shinkai:
+    "Each photograph is redrawn by a local AnimeGANv3 model — adds a few minutes to the build.",
+  ai: "No photographs: every scene is drawn from its own sentence by a free image service. The pictures are imagined, not evidence — and the prompts leave your machine.",
+};
 
 export default function ResearchPage() {
   const queryClient = useQueryClient();
@@ -142,11 +152,7 @@ export default function ResearchPage() {
               </button>
             ))}
           </div>
-          <p className="mt-1.5 text-xs text-muted">
-            {cartoonStyle === "none"
-              ? "Scenes use the original photographs."
-              : "Each picture is redrawn by a local AnimeGANv3 model — adds a few minutes to the build."}
-          </p>
+          <p className="mt-1.5 text-xs text-muted">{LOOK_NOTES[cartoonStyle]}</p>
         </div>
 
         <Button

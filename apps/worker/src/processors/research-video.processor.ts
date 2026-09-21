@@ -2,6 +2,7 @@ import type { Job } from "bullmq";
 import { getPrismaClient } from "@clipforge/database";
 import type { Prisma } from "@clipforge/database";
 import {
+  AI_ILLUSTRATION_NOTE,
   RESEARCH_VIDEO_CREDITS,
   type ResearchFormat,
   type ResearchVideoJob,
@@ -28,6 +29,20 @@ import {
   type CartoonStyle,
 } from "../lib/cartoon";
 import { RESEARCH_RESOLUTIONS } from "../lib/research/assemble";
+import {
+  buildImagePrompt,
+  generateSceneImage,
+  GENERATED_SIZES,
+} from "../lib/research/images";
+
+/** Stable per-scene seed, so retrying a video redraws the same pictures. */
+function seedFrom(key: string): number {
+  let hash = 0;
+  for (let i = 0; i < key.length; i++) {
+    hash = (hash * 31 + key.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash) % 1_000_000;
+}
 
 /** Enough to say something, short enough to hold attention. */
 const MAX_SCENES = 8;
@@ -111,7 +126,9 @@ export async function processResearchVideo(job: Job<ResearchVideoJob>): Promise<
       where: { id: researchId },
       data: {
         title: plan.title,
-        description: `${plan.summary}\n\n${buildAttribution(plan)}`,
+        description:
+          `${plan.summary}\n\n${buildAttribution(plan)}` +
+          (record.cartoonStyle === "ai" ? `\n\n${AI_ILLUSTRATION_NOTE}` : ""),
         scenes: plan.scenes as unknown as Prisma.InputJsonValue,
         status: "BUILDING",
         progress: 25,
@@ -121,8 +138,11 @@ export async function processResearchVideo(job: Job<ResearchVideoJob>): Promise<
 
     // ── 2. Scenes ────────────────────────────────────────
     const format = (record.format as ResearchFormat) ?? "vertical";
+    // "ai" draws each scene instead of photographing it, so it is not a
+    // stylizer pass over Commons media — it replaces the media entirely
+    const drawScenes = record.cartoonStyle === "ai";
     const cartoonStyle =
-      record.cartoonStyle && record.cartoonStyle !== "none"
+      !drawScenes && record.cartoonStyle && record.cartoonStyle !== "none"
         ? (record.cartoonStyle as CartoonStyle)
         : null;
     const canNarrate = narrationAvailable();
@@ -136,7 +156,26 @@ export async function processResearchVideo(job: Job<ResearchVideoJob>): Promise<
       // Media: a failed download costs one scene's picture, not the video
       let mediaPath: string | null = null;
       let isVideo = false;
-      if (scene.media) {
+
+      if (drawScenes) {
+        await setProgress(
+          share,
+          `Drawing scene ${index + 1} of ${plan.scenes.length}`,
+        );
+        const target = work.file(`scene-${index}-drawn.jpg`);
+        const size = GENERATED_SIZES[format];
+        const drawn = await generateSceneImage({
+          prompt: buildImagePrompt(plan.title, scene.text),
+          outPath: target,
+          width: size.width,
+          height: size.height,
+          // Derived from the video and scene, so a retry redraws the same
+          seed: seedFrom(`${researchId}-${index}`),
+        });
+        if (drawn) mediaPath = target;
+      }
+
+      if (!mediaPath && scene.media) {
         const ext = scene.media.kind === "video" ? ".media" : ".img";
         const target = work.file(`scene-${index}${ext}`);
         try {
