@@ -8,6 +8,8 @@ import type { ResearchFormat, ResearchScene } from "@clipforge/shared-types";
 import { FFMPEG } from "../../env";
 import { track } from "../children";
 import { buildAssDocument, type CaptionLine } from "../captions";
+import { probeVideo } from "../ffmpeg";
+import { pickThreadCount } from "../render";
 
 /**
  * Builds one scene at a time, then joins them. Rendering each scene to
@@ -58,6 +60,15 @@ export async function fetchMedia(url: string, outPath: string): Promise<void> {
   await pipeline(response.body as unknown as Readable, createWriteStream(outPath));
 }
 
+/** Whether a downloaded file carries a usable audio stream. */
+async function hasAudioStream(filePath: string): Promise<boolean> {
+  try {
+    return (await probeVideo(filePath)).hasAudio;
+  } catch {
+    return false;
+  }
+}
+
 /** Escapes a path for use inside an ffmpeg filter argument. */
 function escapeFilterPath(p: string): string {
   return p.replace(/\\/g, "/").replace(/:/g, "\\:").replace(/'/g, "\\'");
@@ -94,7 +105,27 @@ export async function renderScene(options: {
   }
 
   const hasNarration = Boolean(options.audioPath);
-  if (options.audioPath) args.push("-i", options.audioPath);
+  let inputCount = 1; // the picture/clip/colour is input 0
+  if (options.audioPath) {
+    args.push("-i", options.audioPath);
+    inputCount++;
+  }
+
+  // Every scene must end up with exactly one audio stream: the scenes are
+  // joined with a stream copy, which needs identical layouts throughout.
+  // A clip with no sound of its own therefore gets a silent track.
+  const sourceHasAudio =
+    !hasNarration && options.isVideo && options.mediaPath
+      ? await hasAudioStream(options.mediaPath)
+      : false;
+  let silenceIndex = -1;
+  if (!hasNarration && !sourceHasAudio) {
+    silenceIndex = inputCount;
+    // Declared here, with the other inputs: an -i after an output option
+    // makes ffmpeg read that option as belonging to this input
+    args.push("-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo");
+    inputCount++;
+  }
 
   // Caption as a burned ASS file — the same renderer the clips use, so
   // the look matches the rest of the app
@@ -127,17 +158,21 @@ export async function renderScene(options: {
 
   args.push("-filter_complex", graph, "-map", "[vout]");
   if (hasNarration) {
-    args.push("-map", "1:a", "-c:a", "aac", "-b:a", "160k");
-  } else if (options.isVideo && options.mediaPath) {
+    args.push("-map", "1:a");
+  } else if (sourceHasAudio) {
     // Keep the clip's own sound when there is no narration over it
-    args.push("-map", "0:a?", "-c:a", "aac", "-b:a", "160k");
+    args.push("-map", "0:a");
   } else {
-    args.push("-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-shortest", "-map", `${hasNarration ? 2 : 1}:a`, "-c:a", "aac", "-b:a", "96k");
+    args.push("-map", `${silenceIndex}:a`, "-shortest");
   }
   args.push(
+    // Pinned rate and channel count: scenes whose audio came from
+    // different sources must still match for the concat copy
+    "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2",
     "-t", duration.toFixed(2),
     "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
     "-pix_fmt", "yuv420p", "-r", String(fps),
+    "-threads", String(pickThreadCount()),
     options.outPath,
   );
 
