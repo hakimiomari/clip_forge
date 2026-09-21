@@ -7,6 +7,7 @@ import {
   type ResearchVideoJob,
 } from "@clipforge/shared-types";
 import { createWorkDir } from "../lib/media";
+import { probeVideo } from "../lib/ffmpeg";
 import { uploadFile } from "../lib/storage";
 import { refundCredits } from "../lib/credits";
 import { findArticle, findImages, findVideos } from "../lib/research/sources";
@@ -18,6 +19,13 @@ import {
   joinScenes,
   renderScene,
 } from "../lib/research/assemble";
+import {
+  CARTOON_LONG_EDGE,
+  probePixelSize,
+  stylizeImage,
+  stylizeVideo,
+  type CartoonStyle,
+} from "../lib/cartoon";
 
 /** Enough to say something, short enough to hold attention. */
 const MAX_SCENES = 8;
@@ -111,6 +119,10 @@ export async function processResearchVideo(job: Job<ResearchVideoJob>): Promise<
 
     // ── 2. Scenes ────────────────────────────────────────
     const format = (record.format as ResearchFormat) ?? "vertical";
+    const cartoonStyle =
+      record.cartoonStyle && record.cartoonStyle !== "none"
+        ? (record.cartoonStyle as CartoonStyle)
+        : null;
     const canNarrate = narrationAvailable();
     const scenePaths: string[] = [];
     let totalSeconds = 0;
@@ -149,6 +161,51 @@ export async function processResearchVideo(job: Job<ResearchVideoJob>): Promise<
           seconds = spoken + 0.6;
         } catch (err) {
           console.warn(`Scene ${index + 1} narration failed: ${String(err).slice(0, 160)}`);
+        }
+      }
+
+      // Cartoon look: the picture itself is stylized, so the caption and
+      // credits drawn over it stay sharp. A still costs one inference; a
+      // clip costs one per frame, which is why stills stay at full
+      // quality and clips drop to the smaller model size.
+      if (cartoonStyle && mediaPath) {
+        try {
+          await setProgress(
+            share,
+            `Drawing scene ${index + 1} of ${plan.scenes.length}`,
+          );
+          if (isVideo) {
+            const size = await probePixelSize(mediaPath);
+            const keepsOwnSound =
+              !audioPath &&
+              (await probeVideo(mediaPath).then((p) => p.hasAudio, () => false));
+            const styled = work.file(`scene-${index}-cartoon.mp4`);
+            await stylizeVideo({
+              inputPath: mediaPath,
+              start: 0,
+              duration: seconds,
+              outPath: styled,
+              style: cartoonStyle,
+              sourceWidth: size.width,
+              sourceHeight: size.height,
+              longEdge: CARTOON_LONG_EDGE.standard,
+              hasAudio: keepsOwnSound,
+            });
+            mediaPath = styled;
+          } else {
+            const styled = work.file(`scene-${index}-cartoon.png`);
+            await stylizeImage({
+              inputPath: mediaPath,
+              outPath: styled,
+              style: cartoonStyle,
+            });
+            mediaPath = styled;
+          }
+        } catch (err) {
+          // A picture that will not stylize still belongs in the video
+          console.warn(
+            `Scene ${index + 1} cartoon failed, using the original: ${String(err).slice(0, 160)}`,
+          );
         }
       }
 

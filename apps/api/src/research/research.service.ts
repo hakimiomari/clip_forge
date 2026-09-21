@@ -44,7 +44,14 @@ export class ResearchService {
     await this.usage.spend(userId, RESEARCH_VIDEO_CREDITS, "RENDER_CLIP", {});
 
     const record = await this.prisma.researchVideo.create({
-      data: { userId, prompt, format: dto.format, status: "PENDING", step: "Queued" },
+      data: {
+        userId,
+        prompt,
+        format: dto.format,
+        cartoonStyle: dto.cartoonStyle ?? "none",
+        status: "PENDING",
+        step: "Queued",
+      },
     });
     try {
       await this.queues.enqueueResearchVideo({ researchId: record.id, userId });
@@ -100,6 +107,7 @@ export class ResearchService {
       status: string;
       error: string | null;
       format: string;
+      cartoonStyle: string;
       progress: number;
       step: string | null;
       duration: number | null;
@@ -117,6 +125,7 @@ export class ResearchService {
       status: row.status as ResearchVideoSummary["status"],
       error: row.error,
       format: row.format,
+      cartoonStyle: row.cartoonStyle as ResearchVideoSummary["cartoonStyle"],
       progress: row.progress,
       step: row.step,
       duration: row.duration,

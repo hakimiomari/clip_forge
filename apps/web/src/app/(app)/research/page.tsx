@@ -19,10 +19,17 @@ const FORMATS = [
   { value: "landscape", label: "Landscape 16:9" },
 ] as const;
 
+const CARTOON_STYLES = [
+  { value: "none", label: "Photos", hint: "The pictures as they are" },
+  { value: "hayao", label: "Hayao", hint: "Ghibli-like: soft, painterly" },
+  { value: "shinkai", label: "Shinkai", hint: "High contrast, vivid skies" },
+] as const;
+
 export default function ResearchPage() {
   const queryClient = useQueryClient();
   const [prompt, setPrompt] = useState("");
   const [format, setFormat] = useState("vertical");
+  const [cartoonStyle, setCartoonStyle] = useState("none");
   const [error, setError] = useState<string | null>(null);
 
   const { data: videos, isLoading } = useQuery({
@@ -39,7 +46,7 @@ export default function ResearchPage() {
     mutationFn: () =>
       api<ResearchVideoSummary>("/research", {
         method: "POST",
-        body: { prompt: prompt.trim(), format },
+        body: { prompt: prompt.trim(), format, cartoonStyle },
       }),
     onSuccess: () => {
       setError(null);
@@ -102,6 +109,34 @@ export default function ResearchPage() {
               </button>
             ))}
           </div>
+        </div>
+
+        <div className="mt-4">
+          <Label>Look</Label>
+          <div className="flex flex-wrap gap-2">
+            {CARTOON_STYLES.map((s) => (
+              <button
+                key={s.value}
+                type="button"
+                title={s.hint}
+                aria-pressed={cartoonStyle === s.value}
+                onClick={() => setCartoonStyle(s.value)}
+                className={cn(
+                  "rounded-lg border px-3 py-1.5 text-sm transition-colors",
+                  cartoonStyle === s.value
+                    ? "border-accent bg-accent/15 text-accent"
+                    : "border-border text-muted hover:border-border-strong hover:text-foreground",
+                )}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1.5 text-xs text-muted">
+            {cartoonStyle === "none"
+              ? "Scenes use the original photographs."
+              : "Each picture is redrawn by a local AnimeGANv3 model — adds a few minutes to the build."}
+          </p>
         </div>
 
         <Button
@@ -167,6 +202,9 @@ function ResearchCard({
           <CardTitle className="truncate">{video.title ?? video.prompt}</CardTitle>
           <p className="mt-0.5 text-xs text-muted">
             “{video.prompt}” · {video.format}
+            {video.cartoonStyle && video.cartoonStyle !== "none"
+              ? ` · ${video.cartoonStyle} cartoon`
+              : ""}
             {video.duration ? ` · ${formatDuration(video.duration)}` : ""} ·{" "}
             {formatRelativeTime(video.createdAt)}
           </p>
