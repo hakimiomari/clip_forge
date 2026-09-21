@@ -55,6 +55,7 @@ export class CompilationsService {
         prompt,
         format: dto.format,
         targetSeconds: dto.targetSeconds,
+        freshness: dto.freshness,
         status: "PENDING",
         step: "Queued",
       },
@@ -113,6 +114,7 @@ export class CompilationsService {
       error: string | null;
       format: string;
       targetSeconds: number | null;
+      freshness: string;
       progress: number;
       step: string | null;
       duration: number | null;
@@ -131,6 +133,7 @@ export class CompilationsService {
       error: row.error,
       format: row.format,
       targetSeconds: row.targetSeconds,
+      freshness: row.freshness as CompilationSummary["freshness"],
       progress: row.progress,
       step: row.step,
       duration: row.duration,

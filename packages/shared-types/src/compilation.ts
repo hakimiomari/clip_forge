@@ -17,6 +17,10 @@ export interface CompilationMoment {
   /** Why it was picked, from the same scorer the highlight step uses */
   score: number;
   watchUrl: string;
+  /** How the moment was located, for the credits and for debugging */
+  method?: "heatmap" | "audio";
+  /** Came from a recent-uploads search */
+  recent?: boolean;
 }
 
 export interface CompilationSummary {
@@ -28,6 +32,7 @@ export interface CompilationSummary {
   error: string | null;
   format: string;
   targetSeconds: number | null;
+  freshness: CompilationFreshness;
   progress: number;
   step: string | null;
   duration: number | null;
@@ -38,13 +43,24 @@ export interface CompilationSummary {
 
 export const COMPILATION_CREDITS = 6;
 
+/**
+ * Where candidates come from: YouTube's all-time relevance ranking,
+ * uploads from the last month or year, or a blend of both.
+ */
+export type CompilationFreshness = "all_time" | "mix" | "latest";
+export const COMPILATION_FRESHNESS: CompilationFreshness[] = [
+  "all_time",
+  "mix",
+  "latest",
+];
+
 /** Finished length the user can ask for. */
 export const COMPILATION_LENGTHS = [60, 90, 120] as const;
 export const MIN_COMPILATION_SECONDS = 30;
 export const MAX_COMPILATION_SECONDS = 120;
 
 /** How many search results are worth analysing for one compilation. */
-export const MAX_CANDIDATE_VIDEOS = 6;
+export const MAX_CANDIDATE_VIDEOS = 8;
 /** Each moment is long enough to register, short enough to keep moving. */
 export const MOMENT_SECONDS = 12;
 

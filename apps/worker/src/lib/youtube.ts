@@ -312,6 +312,19 @@ export async function downloadAnalysisMedia(
   opts: {
     includeVideo: boolean;
     onProgress?: (stage: "audio" | "video", fraction: number) => void;
+    /**
+     * "lean" fetches the lowest-bitrate audio (~49k HE-AAC). Loudness and
+     * silence read the same at any bitrate, and it is ~2.7x smaller — the
+     * difference between minutes and seconds on a full-match video. Keep
+     * "best" when the audio is also transcribed.
+     */
+    audioQuality?: "best" | "lean";
+    /**
+     * Per-track limit; the download is killed when it passes. Callers that
+     * give up on a slow video must set this, or the abandoned download
+     * keeps eating bandwidth the other videos need.
+     */
+    timeoutMs?: number;
   },
 ): Promise<{ audioPath: string; videoPath: string | null }> {
   const fetchTrack = async (
@@ -329,7 +342,7 @@ export async function downloadAnalysisMedia(
         "-o", outPath,
         "--", watchUrl(videoId),
       ],
-      30 * 60_000,
+      opts.timeoutMs ?? 30 * 60_000,
       (line) => {
         const pct = line.match(/CFPROGRESS\s+([\d.]+)%/);
         if (pct?.[1]) opts.onProgress?.(stage, Number(pct[1]) / 100);
@@ -340,7 +353,11 @@ export async function downloadAnalysisMedia(
   };
 
   const audioPath = path.join(workDir, "analysis-audio.m4a");
-  await fetchTrack("audio", "ba[ext=m4a]/ba", audioPath);
+  await fetchTrack(
+    "audio",
+    opts.audioQuality === "lean" ? "wa[ext=m4a]/wa" : "ba[ext=m4a]/ba",
+    audioPath,
+  );
 
   let videoPath: string | null = null;
   if (opts.includeVideo) {
@@ -355,6 +372,72 @@ export async function downloadAnalysisMedia(
     }
   }
   return { audioPath, videoPath };
+}
+
+export interface HeatmapPoint {
+  start: number;
+  end: number;
+  /** 0–1, how heavily this stretch is rewatched relative to the rest */
+  value: number;
+}
+
+export interface VideoSignals {
+  durationSeconds: number | null;
+  /** YouTube's "Most replayed" graph — empty when the video has none */
+  heatmap: HeatmapPoint[];
+}
+
+/**
+ * Metadata only, no media: the replay heatmap tells us where viewers
+ * rewind to, which is a better guide to a video's best moment than
+ * anything we can measure — when YouTube provides one. Many videos
+ * (most cricket uploads, in testing) have none.
+ */
+export async function fetchVideoSignals(videoId: string): Promise<VideoSignals> {
+  const { stdout } = await runYtDlp(
+    [...baseArgs(), "--skip-download", "--dump-json", "--", watchUrl(videoId)],
+    2 * 60_000,
+  );
+  const info = JSON.parse(stdout) as {
+    duration?: number;
+    heatmap?: Array<{ start_time?: number; end_time?: number; value?: number }>;
+  };
+  return {
+    durationSeconds: typeof info.duration === "number" ? info.duration : null,
+    heatmap: (info.heatmap ?? [])
+      .filter(
+        (p) =>
+          typeof p.start_time === "number" &&
+          typeof p.end_time === "number" &&
+          typeof p.value === "number",
+      )
+      .map((p) => ({ start: p.start_time!, end: p.end_time!, value: p.value! })),
+  };
+}
+
+/**
+ * Low-bitrate audio for just one window of a video — used to pin down
+ * the exact moment inside a heatmap peak without fetching the rest.
+ */
+export async function downloadAudioSection(
+  videoId: string,
+  start: number,
+  end: number,
+  outputPath: string,
+): Promise<void> {
+  await runYtDlp(
+    [
+      ...baseArgs(),
+      "--no-progress",
+      "--download-sections", `*${start.toFixed(1)}-${end.toFixed(1)}`,
+      "-f", "wa[ext=m4a]/wa",
+      "-o", outputPath,
+      "--", watchUrl(videoId),
+    ],
+    5 * 60_000,
+  );
+  const exists = await stat(outputPath).then(() => true, () => false);
+  if (!exists) throw new Error("YouTube: audio section download produced no file");
 }
 
 /**

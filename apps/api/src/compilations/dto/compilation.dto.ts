@@ -40,4 +40,13 @@ export class CreateCompilationDto {
   @Min(MIN_COMPILATION_SECONDS)
   @Max(MAX_COMPILATION_SECONDS)
   targetSeconds: number = 60;
+
+  @ApiPropertyOptional({
+    enum: ["all_time", "mix", "latest"],
+    default: "mix",
+    description: "all_time = YouTube's classics; latest = this month's uploads; mix = both",
+  })
+  @IsOptional()
+  @IsIn(["all_time", "mix", "latest"])
+  freshness: string = "mix";
 }

@@ -106,3 +106,65 @@ test("the highlight scorer returns moments shorter than a standalone clip", asyn
   const best = relaxed[0]!;
   assert.ok(best.startTime < 132 && best.endTime > 118, `${best.startTime}-${best.endTime}`);
 });
+
+test("heatmap peaks skip the intro and don't pick neighbouring buckets", async () => {
+  const { pickHeatmapPeaks } = await import("./moments");
+  // 100 buckets of 60s over 100 minutes: a spike at the start (intro
+  // skimming), one great play spanning buckets 40–41, another at 70
+  const heatmap = Array.from({ length: 100 }, (_, i) => ({
+    start: i * 60,
+    end: (i + 1) * 60,
+    value: i === 0 ? 1 : i === 40 ? 0.95 : i === 41 ? 0.9 : i === 70 ? 0.8 : 0.1,
+  }));
+  const peaks = pickHeatmapPeaks(heatmap, 2, 6000);
+  assert.deepEqual(
+    peaks.map((p) => p.start),
+    [2400, 4200],
+    "bucket 41 is the same play as 40, so the second pick is 70",
+  );
+});
+
+test("replay-based moments outrank loudness-based ones", async () => {
+  const { heatmapScore } = await import("./moments");
+  assert.equal(heatmapScore(0), 50);
+  assert.equal(heatmapScore(1), 100);
+  assert.equal(heatmapScore(4), 100, "clamped");
+  // Audio scores observed in practice sit around 50–70
+  assert.ok(heatmapScore(0.5) > 70);
+});
+
+test("mixed searches alternate pools and drop duplicates", async () => {
+  const { interleave } = await import("./search");
+  const c = (id: string, recent: boolean) => ({
+    videoId: id,
+    title: id,
+    channel: "x",
+    durationSeconds: 300,
+    watchUrl: `https://www.youtube.com/watch?v=${id}`,
+    recent,
+  });
+  const allTime = [c("a", false), c("b", false), c("shared", false)];
+  const recent = [c("shared", true), c("n1", true), c("n2", true)];
+  const merged = interleave([allTime, recent], 10);
+  assert.deepEqual(merged.map((m) => m.videoId), ["a", "shared", "b", "n1", "n2"]);
+  assert.equal(interleave([allTime, recent], 3).length, 3, "respects the limit");
+});
+
+test("a short video's intro is never picked, however replayed", async () => {
+  const { pickHeatmapPeaks } = await import("./moments");
+  // A 90s video: 100 buckets of 0.9s, the hottest ones inside the first 8s
+  const heatmap = Array.from({ length: 100 }, (_, i) => ({
+    start: i * 0.9,
+    end: (i + 1) * 0.9,
+    value: i < 8 ? 1 : i === 50 ? 0.7 : 0.1,
+  }));
+  const [peak] = pickHeatmapPeaks(heatmap, 1, 90);
+  assert.ok(peak!.start >= 8, `picked ${peak!.start}s, inside the intro`);
+});
+
+test("introEndSeconds: at least 8s, 3% of a long video", async () => {
+  const { introEndSeconds } = await import("./moments");
+  assert.equal(introEndSeconds(60), 8);
+  // A 2-hour match: the first 3.6 minutes are build-up, not play
+  assert.equal(introEndSeconds(7200), 216);
+});

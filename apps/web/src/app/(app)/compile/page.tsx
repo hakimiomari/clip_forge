@@ -14,6 +14,11 @@ import { ProgressBar } from "@/components/ui/progress";
 const BUSY_STATUSES = ["PENDING", "RESEARCHING", "BUILDING", "RENDERING"];
 
 const LENGTHS = [60, 90, 120] as const;
+const FRESHNESS = [
+  { value: "all_time", label: "Best of all time", hint: "YouTube's most-watched classics" },
+  { value: "mix", label: "Mix", hint: "Classics plus this year's uploads" },
+  { value: "latest", label: "Latest", hint: "Uploads from the last month" },
+] as const;
 const FORMATS = [
   { value: "vertical", label: "Vertical 9:16" },
   { value: "square", label: "Square 1:1" },
@@ -25,6 +30,7 @@ export default function CompilePage() {
   const [prompt, setPrompt] = useState("");
   const [format, setFormat] = useState("vertical");
   const [targetSeconds, setTargetSeconds] = useState<number>(60);
+  const [freshness, setFreshness] = useState("mix");
   const [error, setError] = useState<string | null>(null);
 
   const { data: items, isLoading } = useQuery({
@@ -40,7 +46,7 @@ export default function CompilePage() {
     mutationFn: () =>
       api<CompilationSummary>("/compilations", {
         method: "POST",
-        body: { prompt: prompt.trim(), format, targetSeconds },
+        body: { prompt: prompt.trim(), format, targetSeconds, freshness },
       }),
     onSuccess: () => {
       setError(null);
@@ -98,6 +104,25 @@ export default function CompilePage() {
               </Chip>
             ))}
           </div>
+        </div>
+
+        <div className="mt-4">
+          <Label>Which videos</Label>
+          <div className="flex flex-wrap gap-2">
+            {FRESHNESS.map((f) => (
+              <Chip
+                key={f.value}
+                active={freshness === f.value}
+                onClick={() => setFreshness(f.value)}
+              >
+                {f.label}
+              </Chip>
+            ))}
+          </div>
+          <p className="mt-1.5 text-xs text-muted">
+            {FRESHNESS.find((f) => f.value === freshness)?.hint}. Full matches up to
+            8 hours are included.
+          </p>
         </div>
 
         <div className="mt-4">
