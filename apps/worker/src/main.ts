@@ -1,7 +1,7 @@
 import { Worker, type Processor } from "bullmq";
 import IORedis from "ioredis";
 import { QUEUES } from "@clipforge/shared-types";
-import { env } from "./env";
+import { env, FFMPEG, FFPROBE } from "./env";
 import { processVideoImport } from "./processors/video-import.processor";
 import { processCleanup } from "./processors/cleanup.processor";
 import { processHighlightGeneration } from "./processors/highlight-generation.processor";
@@ -64,8 +64,28 @@ console.log(
   `ClipForge worker started — listening on: ${registry.map((r) => r.queue).join(", ")}`,
 );
 
+// Which binaries this worker resolved, so a stale process pointing at
+// the wrong ffmpeg is obvious in the log rather than at job time
+console.log(`  ffmpeg:  ${FFMPEG}`);
+console.log(`  ffprobe: ${FFPROBE}`);
+
 void checkFfmpegCapabilities().catch((err: Error) => {
-  console.error(`ffmpeg check failed: ${err.message}`);
+  // A blocked or missing binary fails every media job, so say plainly
+  // what is wrong instead of leaving each job to report it obscurely
+  const blocked = /Application Control|not permitted|EACCES|EPERM/i.test(err.message);
+  const missing = /ENOENT|not recognized|failed to start/i.test(err.message);
+  console.error(`\n  ffmpeg is not usable: ${err.message}`);
+  if (blocked) {
+    console.error(
+      `  Windows is refusing to run it (Smart App Control blocks unsigned builds).\n` +
+        `  Point FFMPEG_PATH/FFPROBE_PATH in .env at a build Windows trusts.`,
+    );
+  } else if (missing) {
+    console.error(
+      `  Install ffmpeg, or set FFMPEG_PATH/FFPROBE_PATH in .env.`,
+    );
+  }
+  console.error(`  Media jobs will fail until this is fixed.\n`);
 });
 
 // Reclaim scratch space from jobs that were killed mid-run
