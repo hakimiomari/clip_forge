@@ -15,6 +15,7 @@ export const QUEUES = {
   QUALITY_CHECK: "quality-check",
   CLEANUP_FILES: "cleanup-files",
   FILMSTRIP: "filmstrip",
+  RESEARCH_VIDEO: "research-video",
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
@@ -94,6 +95,12 @@ export interface QualityCheckJob {
 
 export interface CleanupFilesJob {
   storageKeys: string[];
+}
+
+/** Builds a video about a topic from openly-licensed research. */
+export interface ResearchVideoJob {
+  researchId: string;
+  userId: string;
 }
 
 /** Builds the timeline's frame-thumbnail sprite sheet for a source. */
