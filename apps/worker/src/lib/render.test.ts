@@ -1,9 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { parseIdetSummary } from "./ffmpeg";
 import {
   buildAudioFxChain,
   buildFilterGraph,
   buildMetadataArgs,
+  sourceFps,
   buildRenderArgs,
   escapeFilterPath,
   pickThreadCount,
@@ -186,4 +188,28 @@ test("empty or missing caption adds no tags", () => {
 test("a NUL byte is stripped — ffmpeg rejects it outright", () => {
   const args = buildMetadataArgs({ title: "clean\u0000title" });
   assert.deepEqual(args, ["-metadata", "title=cleantitle"]);
+});
+
+void test("sourceFps keeps the source rate, rounded and bounded", () => {
+  assert.equal(sourceFps(null), 30);
+  assert.equal(sourceFps(29.97), 30);
+  assert.equal(sourceFps(50), 50);
+  // 120fps phone footage is capped; 15fps screen recordings are lifted
+  assert.equal(sourceFps(120), 60);
+  assert.equal(sourceFps(15), 24);
+});
+
+void test("an interlaced source is deinterlaced before anything else", () => {
+  const graph = buildFilterGraph({ ...baseSpec, deinterlace: true });
+  assert.match(graph, /^\[0:v\]bwdif=mode=send_frame:parity=auto:deint=all\[vdi\]/);
+  // The layout reads the cleaned frames, not the raw input
+  assert.match(graph, /\[vdi\]split=2/);
+});
+
+void test("parseIdetSummary counts every idet instance, not just the first", () => {
+  const stderr = [
+    "[Parsed_idet_0 @ 0x1] Multi frame detection: TFF:     0 BFF:     0 Progressive:     0 Undetermined:     0",
+    "[Parsed_idet_0 @ 0x2] Multi frame detection: TFF:    61 BFF:     0 Progressive:     0 Undetermined:     0",
+  ].join("\n");
+  assert.deepEqual(parseIdetSummary(stderr), { interlaced: 61, progressive: 0 });
 });

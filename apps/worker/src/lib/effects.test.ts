@@ -97,3 +97,14 @@ void test("glow trail overlays several delayed fading copies", () => {
   assert.match(graph, /colorchannelmixer=aa=/);
   assert.equal(out, "tr0");
 });
+
+void test("synthesized slow-motion frames match the output frame rate", () => {
+  const map = buildTimeMap(
+    [{ id: "s", type: "slow_motion", start: 2, end: 4, factor: 0.5 }],
+    10,
+  );
+  // Frame synthesis is chosen by the speed-ramp planner; set it directly
+  for (const seg of map.segments) if (seg.speed < 1) seg.interpolate = "blend";
+  const { chains } = buildSpeedChain(map, false, "0:v", "0:a", 60);
+  assert.match(chains.join(";"), /minterpolate=fps=60:mi_mode=blend/);
+});

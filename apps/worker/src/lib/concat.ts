@@ -94,7 +94,7 @@ export function buildConcatArgs(
     "-c:v", "libx264",
     "-preset", "veryfast",
     // Near-lossless: this is an intermediate the real render re-encodes
-    "-crf", "18",
+    "-crf", "16",
     "-pix_fmt", "yuv420p",
     "-r", String(fps),
     "-y",
