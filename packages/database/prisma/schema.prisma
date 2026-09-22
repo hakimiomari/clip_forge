@@ -406,6 +406,12 @@ model ResearchVideo {
   status       ResearchStatus @default(PENDING)
   error        String?
   format       String         @default("vertical")
+  /** RESEARCH = built from open sources; COMPILATION = best-of from YouTube */
+  kind         String         @default("RESEARCH")
+  /** Length a compilation aims for, in seconds */
+  targetSeconds Int?
+  /** all_time | mix | latest — which YouTube uploads a compilation draws on */
+  freshness    String         @default("mix")
   /** none | hayao | shinkai — AnimeGANv3 look applied to each scene's media */
   cartoonStyle String         @default("none")
   // Scenes actually used, with their media and attribution (see

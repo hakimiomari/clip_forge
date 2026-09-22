@@ -5,3 +5,5 @@ export * from "./api.js";
 export * from "./credits.js";
 export * from "./clip-metadata.js";
 export * from "./research.js";
+export * from "./compilation.js";
+export * from "./reel.js";

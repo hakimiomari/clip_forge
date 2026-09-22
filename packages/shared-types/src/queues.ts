@@ -16,6 +16,7 @@ export const QUEUES = {
   CLEANUP_FILES: "cleanup-files",
   FILMSTRIP: "filmstrip",
   RESEARCH_VIDEO: "research-video",
+  COMPILATION: "compilation",
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
@@ -67,6 +68,13 @@ export interface HighlightGenerationOptions {
   autoClipOptions?: AutoClipOptions;
   /** Credits pre-charged per short, refunded per short if one fails */
   autoRenderCreditsPerClip?: number;
+  /**
+   * Best-moments video: instead of a short per moment, cut the moments
+   * together into one video of about `reelSeconds`. Implies automatic
+   * mode; `autoRenderCreditsPerClip` is then the cost of that one render.
+   */
+  mergeIntoOne?: boolean;
+  reelSeconds?: number;
 }
 
 export interface ClipGenerationJob {
@@ -95,6 +103,12 @@ export interface QualityCheckJob {
 
 export interface CleanupFilesJob {
   storageKeys: string[];
+}
+
+/** Builds a best-of compilation from moments found across YouTube. */
+export interface CompilationJob {
+  compilationId: string;
+  userId: string;
 }
 
 /** Builds a video about a topic from openly-licensed research. */

@@ -22,6 +22,7 @@ const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/projects", label: "Projects", icon: FolderOpen },
   { href: "/research", label: "Research video", icon: Sparkles },
+  { href: "/compile", label: "Best-of compilation", icon: Clapperboard },
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {

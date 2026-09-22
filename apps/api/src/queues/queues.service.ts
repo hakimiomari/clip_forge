@@ -14,6 +14,7 @@ import {
   type CleanupFilesJob,
   type FilmstripJob,
   type ResearchVideoJob,
+  type CompilationJob,
   type HighlightGenerationJob,
   type RenderVideoJob,
 } from "@clipforge/shared-types";
@@ -83,6 +84,16 @@ export class QueuesService implements OnModuleDestroy {
       attempts: 1,
     });
     this.logger.log(`Enqueued research-video ${payload.researchId}`);
+    return job.id ?? "";
+  }
+
+  async enqueueCompilation(payload: CompilationJob): Promise<string> {
+    const job = await this.queue(QUEUES.COMPILATION).add("compile", payload, {
+      // Searching, analysing and downloading is long and not resumable
+      // midway; the processor handles its own failure and refund
+      attempts: 1,
+    });
+    this.logger.log(`Enqueued compilation ${payload.compilationId}`);
     return job.id ?? "";
   }
 

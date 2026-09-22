@@ -39,3 +39,15 @@ test("refuses to build a join for fewer than two parts", () => {
     /at least two parts/,
   );
 });
+
+test("parts of different sizes are fitted to one frame size", () => {
+  const args = buildConcatArgs(parts, "/tmp/out.mp4", {
+    hasAudio: true,
+    size: { width: 1280, height: 720 },
+  });
+  const graph = args[args.indexOf("-filter_complex") + 1]!;
+  assert.match(
+    graph,
+    /\[1:v\]scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:\(ow-iw\)\/2:\(oh-ih\)\/2,fps=30/,
+  );
+});

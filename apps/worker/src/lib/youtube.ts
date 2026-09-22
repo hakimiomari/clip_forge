@@ -3,7 +3,7 @@ import { existsSync } from "fs";
 import { readdir, readFile, stat } from "fs/promises";
 import path from "path";
 import { env, FFMPEG, YTDLP } from "../env";
-import { track } from "./children";
+import { killTree, track } from "./children";
 
 /**
  * YouTube sources are never downloaded in full. Import reads metadata,
@@ -53,12 +53,14 @@ function runYtDlp(
   onLine?: (line: string) => void,
 ): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const child = track(spawn(YTDLP, args, { windowsHide: true }));
+    // Own process group, so a timeout also takes down the ffmpeg that
+    // yt-dlp spawns for section downloads and merges
+    const child = track(spawn(YTDLP, args, { windowsHide: true, detached: true }));
     let stdout = "";
     let stderr = "";
     let pendingLine = "";
     const timeout = setTimeout(() => {
-      child.kill("SIGKILL");
+      killTree(child);
       reject(new Error(`YouTube request timed out after ${Math.round(timeoutMs / 60_000)} min`));
     }, timeoutMs);
     child.stdout.on("data", (d: Buffer) => {
@@ -312,6 +314,19 @@ export async function downloadAnalysisMedia(
   opts: {
     includeVideo: boolean;
     onProgress?: (stage: "audio" | "video", fraction: number) => void;
+    /**
+     * "lean" fetches the lowest-bitrate audio (~49k HE-AAC). Loudness and
+     * silence read the same at any bitrate, and it is ~2.7x smaller — the
+     * difference between minutes and seconds on a full-match video. Keep
+     * "best" when the audio is also transcribed.
+     */
+    audioQuality?: "best" | "lean";
+    /**
+     * Per-track limit; the download is killed when it passes. Callers that
+     * give up on a slow video must set this, or the abandoned download
+     * keeps eating bandwidth the other videos need.
+     */
+    timeoutMs?: number;
   },
 ): Promise<{ audioPath: string; videoPath: string | null }> {
   const fetchTrack = async (
@@ -329,7 +344,7 @@ export async function downloadAnalysisMedia(
         "-o", outPath,
         "--", watchUrl(videoId),
       ],
-      30 * 60_000,
+      opts.timeoutMs ?? 30 * 60_000,
       (line) => {
         const pct = line.match(/CFPROGRESS\s+([\d.]+)%/);
         if (pct?.[1]) opts.onProgress?.(stage, Number(pct[1]) / 100);
@@ -340,7 +355,11 @@ export async function downloadAnalysisMedia(
   };
 
   const audioPath = path.join(workDir, "analysis-audio.m4a");
-  await fetchTrack("audio", "ba[ext=m4a]/ba", audioPath);
+  await fetchTrack(
+    "audio",
+    opts.audioQuality === "lean" ? "wa[ext=m4a]/wa" : "ba[ext=m4a]/ba",
+    audioPath,
+  );
 
   let videoPath: string | null = null;
   if (opts.includeVideo) {
@@ -355,6 +374,72 @@ export async function downloadAnalysisMedia(
     }
   }
   return { audioPath, videoPath };
+}
+
+export interface HeatmapPoint {
+  start: number;
+  end: number;
+  /** 0–1, how heavily this stretch is rewatched relative to the rest */
+  value: number;
+}
+
+export interface VideoSignals {
+  durationSeconds: number | null;
+  /** YouTube's "Most replayed" graph — empty when the video has none */
+  heatmap: HeatmapPoint[];
+}
+
+/**
+ * Metadata only, no media: the replay heatmap tells us where viewers
+ * rewind to, which is a better guide to a video's best moment than
+ * anything we can measure — when YouTube provides one. Many videos
+ * (most cricket uploads, in testing) have none.
+ */
+export async function fetchVideoSignals(videoId: string): Promise<VideoSignals> {
+  const { stdout } = await runYtDlp(
+    [...baseArgs(), "--skip-download", "--dump-json", "--", watchUrl(videoId)],
+    2 * 60_000,
+  );
+  const info = JSON.parse(stdout) as {
+    duration?: number;
+    heatmap?: Array<{ start_time?: number; end_time?: number; value?: number }>;
+  };
+  return {
+    durationSeconds: typeof info.duration === "number" ? info.duration : null,
+    heatmap: (info.heatmap ?? [])
+      .filter(
+        (p) =>
+          typeof p.start_time === "number" &&
+          typeof p.end_time === "number" &&
+          typeof p.value === "number",
+      )
+      .map((p) => ({ start: p.start_time!, end: p.end_time!, value: p.value! })),
+  };
+}
+
+/**
+ * Low-bitrate audio for just one window of a video — used to pin down
+ * the exact moment inside a heatmap peak without fetching the rest.
+ */
+export async function downloadAudioSection(
+  videoId: string,
+  start: number,
+  end: number,
+  outputPath: string,
+): Promise<void> {
+  await runYtDlp(
+    [
+      ...baseArgs(),
+      "--no-progress",
+      "--download-sections", `*${start.toFixed(1)}-${end.toFixed(1)}`,
+      "-f", "wa[ext=m4a]/wa",
+      "-o", outputPath,
+      "--", watchUrl(videoId),
+    ],
+    5 * 60_000,
+  );
+  const exists = await stat(outputPath).then(() => true, () => false);
+  if (!exists) throw new Error("YouTube: audio section download produced no file");
 }
 
 /**
@@ -376,24 +461,40 @@ export async function downloadYouTubeSection(
         "--no-progress",
         "--download-sections", `*${start.toFixed(3)}-${end.toFixed(3)}`,
         "--force-keyframes-at-cuts",
+        // YouTube sometimes stops sending mid-stream without closing the
+        // connection; ffmpeg would wait on it forever. Give up after 30s
+        // of silence so the retry below gets a fresh URL instead.
+        "--downloader-args", "ffmpeg_i:-rw_timeout 30000000",
         "-f", format,
         "--merge-output-format", "mp4",
         "-o", outputPath,
         "--", watchUrl(videoId),
       ],
-      // Section fetches re-encode at the cut; allow ~4x realtime plus slack
-      Math.max(5 * 60_000, seconds * 4_000),
+      // Section fetches re-encode at the cut; a healthy one takes well
+      // under a minute, so past 3 min it is stuck, not slow
+      Math.max(3 * 60_000, seconds * 4_000),
     );
 
-  try {
-    await attempt(CLIP_FORMAT);
-  } catch (err) {
-    // Transient CDN errors and encoder memory failures both deserve one
-    // cheaper retry at lower resolution before giving up.
-    console.warn(
-      `YouTube section fetch failed at 720p, retrying at 480p: ${String(err).slice(0, 200)}`,
-    );
-    await attempt(CLIP_FORMAT_FALLBACK);
+  // YouTube refuses the odd stream URL (403) at random. Each attempt
+  // asks for fresh signed URLs, so the same quality usually works a few
+  // seconds later; only after that is 480p worth the quality loss.
+  const plan: Array<{ format: string; label: string; pauseMs: number }> = [
+    { format: CLIP_FORMAT, label: "720p", pauseMs: 0 },
+    { format: CLIP_FORMAT, label: "720p", pauseMs: 3_000 },
+    { format: CLIP_FORMAT_FALLBACK, label: "480p", pauseMs: 5_000 },
+  ];
+  for (const [i, step] of plan.entries()) {
+    if (step.pauseMs > 0) await new Promise((r) => setTimeout(r, step.pauseMs));
+    try {
+      await attempt(step.format);
+      break;
+    } catch (err) {
+      if (i === plan.length - 1) throw err;
+      console.warn(
+        `YouTube section fetch failed at ${step.label} (attempt ${i + 1}), ` +
+          `retrying: ${String(err).slice(0, 200)}`,
+      );
+    }
   }
   const exists = await stat(outputPath).then(() => true, () => false);
   if (!exists) throw new Error("YouTube: section download produced no file");

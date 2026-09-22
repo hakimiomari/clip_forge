@@ -18,6 +18,9 @@ import { buildCtaAss } from "../lib/cta";
 import { generateMaskVideo } from "../lib/bg-removal";
 import { CARTOON_LONG_EDGE, stylizeVideo } from "../lib/cartoon";
 
+/** YouTube parts of a multi-part clip fetched at once. */
+const SECTION_CONCURRENCY = 3;
+
 /** Burned into every free-plan render, top-centre. */
 const WATERMARK_TEXT = "Powerd by CricPulse";
 
@@ -114,17 +117,30 @@ export async function processRenderVideo(job: Job<RenderVideoJob>): Promise<void
     let parts: ConcatPart[];
     if (youtubeId) {
       await emit(4, `Fetching clip section from YouTube${partLabel}`);
-      parts = [];
-      for (const [i, seg] of segments.entries()) {
-        const partPath = work.file(`section-${i}.mp4`);
-        await downloadYouTubeSection(youtubeId, seg.sourceStart, seg.sourceEnd, partPath);
-        // The download already starts at the part, so read it from 0
-        parts.push({
-          inputPath: partPath,
-          start: 0,
-          duration: seg.sourceEnd - seg.sourceStart,
-        });
-      }
+      // A few at a time: each fetch is mostly waiting on YouTube, and a
+      // best-moments video can have a dozen parts
+      parts = new Array(segments.length);
+      let next = 0;
+      let fetched = 0;
+      await Promise.all(
+        Array.from({ length: Math.min(SECTION_CONCURRENCY, segments.length) }, async () => {
+          for (let i = next++; i < segments.length; i = next++) {
+            const seg = segments[i]!;
+            const partPath = work.file(`section-${i}.mp4`);
+            await downloadYouTubeSection(youtubeId, seg.sourceStart, seg.sourceEnd, partPath);
+            // The download already starts at the part, so read it from 0
+            parts[i] = {
+              inputPath: partPath,
+              start: 0,
+              duration: seg.sourceEnd - seg.sourceStart,
+            };
+            fetched++;
+            if (segments.length > 1) {
+              await emit(4, `Fetched ${fetched} of ${segments.length} parts from YouTube`);
+            }
+          }
+        }),
+      );
     } else {
       const sourcePath = await fetchToWorkDir(work, source.storageKey!, "source");
       parts = segments.map((seg) => ({
@@ -144,10 +160,22 @@ export async function processRenderVideo(job: Job<RenderVideoJob>): Promise<void
     if (parts.length > 1) {
       await emit(6, `Joining ${parts.length} parts`);
       const joinedPath = work.file("joined.mp4");
-      const firstProbe = await probeVideo(parts[0]!.inputPath);
+      const probes = await Promise.all(
+        [...new Set(parts.map((p) => p.inputPath))].map((p) => probeVideo(p)),
+      );
+      const firstProbe = probes[0]!;
+      // Join at the largest part's size, so one low-resolution fallback
+      // part is scaled up rather than every other part scaled down
+      const largest = probes.reduce((a, b) =>
+        (b.width ?? 0) * (b.height ?? 0) > (a.width ?? 0) * (a.height ?? 0) ? b : a,
+      );
       await concatParts(parts, joinedPath, {
-        hasAudio: firstProbe.hasAudio,
+        hasAudio: probes.every((p) => p.hasAudio),
         fps: firstProbe.fps && firstProbe.fps > 0 ? Math.round(firstProbe.fps) : 30,
+        size:
+          largest.width && largest.height
+            ? { width: largest.width, height: largest.height }
+            : undefined,
       });
       inputPath = joinedPath;
       renderStart = 0;
