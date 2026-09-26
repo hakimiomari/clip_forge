@@ -79,7 +79,7 @@ cp .env.example .env
 node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 #    (run twice: JWT_SECRET and JWT_REFRESH_SECRET)
 
-# 3. Start infrastructure (PostgreSQL :5433, Redis :6380, MinIO :9000/:9001)
+# 3. Start infrastructure (PostgreSQL :5433, Redis :6380, MinIO :9200/:9201)
 pnpm infra:up
 #    A one-shot job creates the storage bucket automatically.
 
@@ -103,7 +103,7 @@ Or individually: `pnpm dev:api`, `pnpm dev:worker`, `pnpm dev:web`.
 | Web app | http://localhost:3000 |
 | API | http://localhost:4000 |
 | API docs (Swagger) | http://localhost:4000/docs |
-| MinIO console | http://localhost:9001 (user `clipforge`, password `clipforge-secret`) |
+| MinIO console | http://localhost:9201 (user `clipforge`, password `clipforge-secret`) |
 | Prisma Studio | `pnpm db:studio` |
 
 Stop infrastructure with `pnpm infra:down` (data persists in Docker volumes).
@@ -256,6 +256,9 @@ Auth is cookie-based (`credentials: include`); `Authorization: Bearer` also work
 
 | Symptom | Cause / fix |
 | --- | --- |
+| Worker logs `ECONNREFUSED` / `worker error:` repeatedly | Redis is not up. Run `pnpm infra:up`. The worker now prints one explanatory line instead of one per queue per retry. |
+| API exits with `P1001 Can't reach database server` | Containers are down (common after a reboot): `pnpm infra:up`. If Docker's engine answers every request with a 500, quit and reopen Docker Desktop. |
+| A container fails to start with `ports are not available … forbidden by its access permissions` | Windows reserved that port for Hyper-V/WSL at boot, and the ranges change between reboots. Check with `netsh interface ipv4 show excludedportrange protocol=tcp` and move the host port in `docker/docker-compose.yml` (plus `.env`) outside every listed range — this is why MinIO uses 9200/9201 rather than 9000/9001. |
 | `pnpm install` times out on big packages | Slow connections starve parallel downloads. This repo already sets `networkConcurrency: 1` + long timeouts in `pnpm-workspace.yaml` — just re-run `pnpm install`; it resumes from cache. |
 | MinIO image pull denied | MinIO left Docker Hub; the compose file already uses `quay.io/minio/*`. |
 | Import stuck at "Extracting audio", ffmpeg at 100 % CPU | Some FFmpeg builds' native AAC encoder near-hangs at forced 16 kHz on certain content. Fixed: the worker extracts at the source sample rate. If you see it again, update FFmpeg. |
