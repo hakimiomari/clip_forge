@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, Loader2, Trash2, Wand2 } from "lucide-react";
+import { Download, Loader2, RefreshCcw, Trash2, Wand2 } from "lucide-react";
 import {
   GENERATED_LENGTHS,
   GENERATED_STYLES,
@@ -74,6 +74,16 @@ export default function GeneratePage() {
   const remove = useMutation({
     mutationFn: (id: string) => api(`/generated/${id}`, { method: "DELETE" }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["generated"] }),
+  });
+
+  const retry = useMutation({
+    mutationFn: (id: string) => api(`/generated/${id}/retry`, { method: "POST" }),
+    onSuccess: () => {
+      setError(null);
+      void queryClient.invalidateQueries({ queryKey: ["generated"] });
+    },
+    onError: (err) =>
+      setError(err instanceof ApiError ? err.message : String(err)),
   });
 
   const busy = (items ?? []).some((v) => BUSY_STATUSES.includes(v.status));
@@ -204,6 +214,9 @@ export default function GeneratePage() {
                     remove.mutate(item.id);
                   }
                 }}
+                onRetry={() => retry.mutate(item.id)}
+                retrying={retry.isPending && retry.variables === item.id}
+                retryBlocked={busy}
               />
             ))}
           </div>
@@ -242,9 +255,16 @@ function Chip({
 function GeneratedCard({
   item,
   onDelete,
+  onRetry,
+  retrying,
+  retryBlocked,
 }: {
   item: GeneratedVideoSummary;
   onDelete: () => void;
+  onRetry: () => void;
+  retrying: boolean;
+  /** Another video is generating — only one runs at a time */
+  retryBlocked: boolean;
 }) {
   const busy = BUSY_STATUSES.includes(item.status);
   const styleLabel = GENERATED_STYLES.find((s) => s.value === item.style)?.label ?? item.style;
@@ -272,9 +292,24 @@ function GeneratedCard({
       )}
 
       {item.status === "FAILED" && (
-        <p className="mt-3 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
-          {item.error ?? "This build failed."}
-        </p>
+        <div className="mt-3 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2">
+          <p className="text-xs text-danger">{item.error ?? "This build failed."}</p>
+          <Button
+            size="sm"
+            variant="secondary"
+            className="mt-2"
+            onClick={onRetry}
+            loading={retrying}
+            disabled={retryBlocked}
+          >
+            <RefreshCcw className="h-4 w-4" />
+            Try again
+          </Button>
+          <p className="mt-1.5 text-xs text-muted">
+            Same prompt and settings, {GENERATED_VIDEO_CREDITS} credits again — the
+            failed attempt was refunded.
+          </p>
+        </div>
       )}
 
       {item.status === "READY" && item.videoUrl && (

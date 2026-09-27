@@ -41,6 +41,11 @@ export class GeneratedController {
     return this.generated.detail(id, user.id);
   }
 
+  @Post(":id/retry")
+  retry(@CurrentUser() user: RequestUser, @Param("id") id: string) {
+    return this.generated.retry(id, user.id);
+  }
+
   @Delete(":id")
   @HttpCode(204)
   async remove(@CurrentUser() user: RequestUser, @Param("id") id: string) {

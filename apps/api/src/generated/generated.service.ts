@@ -79,6 +79,55 @@ export class GeneratedService {
     return this.toSummary(record);
   }
 
+  /**
+   * Generates a failed video again with the same prompt and settings.
+   * The failure already refunded its credits, so this charges afresh.
+   */
+  async retry(id: string, userId: string): Promise<GeneratedVideoSummary> {
+    const existing = await this.getOwned(id, userId);
+    if (existing.status !== "FAILED") {
+      throw new BadRequestException("Only a failed video can be generated again");
+    }
+    const running = await this.prisma.researchVideo.count({
+      where: { userId, kind: "GENERATED", status: { in: BUSY as never[] } },
+    });
+    if (running > 0) {
+      throw new BadRequestException(
+        "A video is already being generated — wait for it to finish.",
+      );
+    }
+
+    await this.usage.spend(userId, GENERATED_VIDEO_CREDITS, "RENDER_CLIP", {});
+    const record = await this.prisma.researchVideo.update({
+      where: { id },
+      data: {
+        status: "PENDING",
+        step: "Queued",
+        error: null,
+        progress: 0,
+        // Nothing from the last attempt is reused; clear it so a
+        // half-built result can never be mistaken for this run's
+        engine: null,
+        scenes: undefined,
+        storageKey: null,
+        thumbnailKey: null,
+        duration: null,
+        description: null,
+      },
+    });
+    try {
+      await this.queues.enqueueGeneratedVideo({ generatedId: id, userId });
+    } catch (err) {
+      await this.usage.refund(userId, GENERATED_VIDEO_CREDITS, {});
+      await this.prisma.researchVideo.update({
+        where: { id },
+        data: { status: "FAILED", error: "Could not queue the build", step: "Failed" },
+      });
+      throw err;
+    }
+    return this.toSummary(record);
+  }
+
   async list(userId: string): Promise<GeneratedVideoSummary[]> {
     const rows = await this.prisma.researchVideo.findMany({
       where: { userId, kind: "GENERATED" },
