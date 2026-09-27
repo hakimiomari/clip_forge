@@ -7,3 +7,4 @@ export * from "./clip-metadata.js";
 export * from "./research.js";
 export * from "./compilation.js";
 export * from "./reel.js";
+export * from "./generated.js";

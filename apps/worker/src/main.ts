@@ -9,6 +9,7 @@ import { processRenderVideo } from "./processors/render-video.processor";
 import { processFilmstrip } from "./processors/filmstrip.processor";
 import { processResearchVideo } from "./processors/research-video.processor";
 import { processCompilation } from "./processors/compilation.processor";
+import { processGeneratedVideo } from "./processors/generated-video.processor";
 import { closeProgressPublisher } from "./lib/progress";
 import { checkFfmpegCapabilities } from "./lib/ffmpeg";
 import { finalizeStalledJob, isStalledFailure } from "./lib/stalled";
@@ -38,6 +39,7 @@ const registry: Array<{ queue: string; processor: Processor<any>; concurrency: n
   { queue: QUEUES.FILMSTRIP, processor: processFilmstrip, concurrency: 2 },
   { queue: QUEUES.RESEARCH_VIDEO, processor: processResearchVideo, concurrency: 1 },
   { queue: QUEUES.COMPILATION, processor: processCompilation, concurrency: 1 },
+  { queue: QUEUES.GENERATED_VIDEO, processor: processGeneratedVideo, concurrency: 1 },
 ];
 
 /**

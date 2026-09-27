@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Clapperboard,
+  Wand2,
   LayoutDashboard,
   FolderOpen,
   Loader2,
@@ -23,6 +24,7 @@ const navItems = [
   { href: "/projects", label: "Projects", icon: FolderOpen },
   { href: "/research", label: "Research video", icon: Sparkles },
   { href: "/compile", label: "Best-of compilation", icon: Clapperboard },
+  { href: "/generate", label: "AI video", icon: Wand2 },
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {

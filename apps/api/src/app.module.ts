@@ -18,6 +18,7 @@ import { HealthModule } from "./health/health.module";
 import { DashboardModule } from "./dashboard/dashboard.module";
 import { ResearchModule } from "./research/research.module";
 import { CompilationsModule } from "./compilations/compilations.module";
+import { GeneratedModule } from "./generated/generated.module";
 import { JwtAuthGuard } from "./common/guards/jwt-auth.guard";
 
 @Module({
@@ -47,6 +48,7 @@ import { JwtAuthGuard } from "./common/guards/jwt-auth.guard";
     DashboardModule,
     ResearchModule,
     CompilationsModule,
+    GeneratedModule,
     HealthModule,
   ],
   providers: [

@@ -406,7 +406,7 @@ model ResearchVideo {
   status       ResearchStatus @default(PENDING)
   error        String?
   format       String         @default("vertical")
-  /** RESEARCH = built from open sources; COMPILATION = best-of from YouTube */
+  /** RESEARCH = built from open sources; COMPILATION = best-of from YouTube; GENERATED = AI video from a prompt */
   kind         String         @default("RESEARCH")
   /** Length a compilation aims for, in seconds */
   targetSeconds Int?
@@ -414,6 +414,10 @@ model ResearchVideo {
   freshness    String         @default("mix")
   /** none | hayao | shinkai — AnimeGANv3 look applied to each scene's media */
   cartoonStyle String         @default("none")
+  /** GENERATED only: the look every shot is asked for (see shared-types GENERATED_STYLES) */
+  style        String         @default("cinematic")
+  /** GENERATED only: engine that made it — veo | sora | images */
+  engine       String?
   // Scenes actually used, with their media and attribution (see
   // shared-types ResearchScene) — kept so the result is auditable
   scenes       Json?

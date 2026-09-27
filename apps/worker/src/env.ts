@@ -50,6 +50,12 @@ const schema = z.object({
   AI_PROVIDER: z.enum(["anthropic", "openai", "heuristic", "mock"]).default("heuristic"),
   AI_API_KEY: z.string().optional(),
   AI_MODEL: z.string().default("claude-sonnet-5"),
+  // AI video engines (optional — the free image engine needs no key)
+  GEMINI_API_KEY: z.string().optional(),
+  OPENAI_API_KEY: z.string().optional(),
+  VIDEO_ENGINE: z.enum(["veo", "sora", "images"]).optional(),
+  VEO_MODEL: z.string().default("veo-3.1-fast-generate-preview"),
+  SORA_MODEL: z.string().default("sora-2"),
   TRANSCRIPTION_PROVIDER: z.enum(["openai", "deepgram", "none", "mock"]).default("none"),
   TRANSCRIPTION_API_KEY: z.string().optional(),
 });
