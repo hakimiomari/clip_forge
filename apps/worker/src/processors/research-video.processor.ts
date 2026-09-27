@@ -172,7 +172,7 @@ export async function processResearchVideo(job: Job<ResearchVideoJob>): Promise<
           // Derived from the video and scene, so a retry redraws the same
           seed: seedFrom(`${researchId}-${index}`),
         });
-        if (drawn) mediaPath = target;
+        if (drawn.ok) mediaPath = target;
       }
 
       if (!mediaPath && scene.media) {

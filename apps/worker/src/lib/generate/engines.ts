@@ -203,9 +203,10 @@ export async function imageShot(req: ShotRequest): Promise<ShotResult> {
     height,
     seed: req.seed,
   });
-  if (!drawn) {
+  if (!drawn.ok) {
     throw new Error(
-      "The free image engine could not draw this shot — it may be busy; try again in a minute",
+      `The free image engine could not draw this shot (${drawn.reason}). ` +
+        "It serves one picture at a time per network; wait a minute and try again.",
     );
   }
   return { isVideo: false, model: "pollinations/flux" };

@@ -20,10 +20,11 @@ import { grabThumbnail, joinScenes } from "../lib/research/assemble";
 import { probeDuration } from "../lib/research/narration";
 
 /**
- * Shots generated at once. Hosted video models rate-limit per key and
- * each shot takes minutes anyway; the free image service copes with two.
+ * Shots generated at once. Hosted video models rate-limit per key, and
+ * the free image service queues exactly one request per address and
+ * refuses a second outright — so everything runs one shot at a time.
  */
-const SHOT_CONCURRENCY: Record<GeneratedEngine, number> = { veo: 1, sora: 1, images: 2 };
+const SHOT_CONCURRENCY: Record<GeneratedEngine, number> = { veo: 1, sora: 1, images: 1 };
 
 /** A stable per-shot seed, so rebuilding the same video draws the same pictures. */
 function seedFor(id: string, index: number): number {
