@@ -36,13 +36,14 @@ export interface YouTubeStreams {
   videoUrl: string | null;
 }
 
-// Best MP4 up to 720p with audio, merged by ffmpeg; progressive fallback.
-// 720p (1280 wide) fully covers the 1080-wide vertical layout, and halves
-// the memory of the keyframe re-encode — 1080p sports footage has made
-// x264 fail malloc on busy machines.
+// Best H.264 MP4 up to 1080p with audio, merged by ffmpeg. 1080p is the
+// original quality of nearly every upload, and the section is copied
+// as-is (no re-encode), so the size costs bandwidth, not memory.
 const CLIP_FORMAT =
+  "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/bv*[height<=1080]+ba/b";
+// Lower rungs for when YouTube keeps refusing the 1080p stream URL
+const CLIP_FORMAT_720 =
   "bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720][ext=mp4]/bv*[height<=720]+ba/b";
-// Last-resort format when even 720p re-encoding fails (low memory)
 const CLIP_FORMAT_FALLBACK =
   "b[height<=480][ext=mp4]/bv*[height<=480]+ba/b[height<=480]/wv*+ba/w";
 
@@ -459,8 +460,13 @@ export async function downloadYouTubeSection(
       [
         ...baseArgs(),
         "--no-progress",
+        // Stream-copied, not re-encoded: the file keeps the original
+        // frames, and ffmpeg's edit list makes playback start on the exact
+        // requested frame even though copying begins at the keyframe
+        // before it. (Verified frame-for-frame against a re-encoded cut.)
+        // A re-encode here was a whole quality generation lost, and the
+        // memory hog behind past out-of-memory failures.
         "--download-sections", `*${start.toFixed(3)}-${end.toFixed(3)}`,
-        "--force-keyframes-at-cuts",
         // YouTube sometimes stops sending mid-stream without closing the
         // connection; ffmpeg would wait on it forever. Give up after 30s
         // of silence so the retry below gets a fresh URL instead.
@@ -470,17 +476,18 @@ export async function downloadYouTubeSection(
         "-o", outputPath,
         "--", watchUrl(videoId),
       ],
-      // Section fetches re-encode at the cut; a healthy one takes well
-      // under a minute, so past 3 min it is stuck, not slow
+      // A healthy copy takes well under a minute, so past 3 min it is
+      // stuck, not slow
       Math.max(3 * 60_000, seconds * 4_000),
     );
 
   // YouTube refuses the odd stream URL (403) at random. Each attempt
   // asks for fresh signed URLs, so the same quality usually works a few
-  // seconds later; only after that is 480p worth the quality loss.
+  // seconds later; only after that is a lower quality worth the loss.
   const plan: Array<{ format: string; label: string; pauseMs: number }> = [
-    { format: CLIP_FORMAT, label: "720p", pauseMs: 0 },
-    { format: CLIP_FORMAT, label: "720p", pauseMs: 3_000 },
+    { format: CLIP_FORMAT, label: "1080p", pauseMs: 0 },
+    { format: CLIP_FORMAT, label: "1080p", pauseMs: 3_000 },
+    { format: CLIP_FORMAT_720, label: "720p", pauseMs: 5_000 },
     { format: CLIP_FORMAT_FALLBACK, label: "480p", pauseMs: 5_000 },
   ];
   for (const [i, step] of plan.entries()) {
