@@ -128,6 +128,53 @@ export async function probeVideo(filePath: string): Promise<ProbeResult> {
 }
 
 /** Extracts a single frame as a JPEG thumbnail (max 640px wide). */
+/**
+ * Reads idet's verdict from ffmpeg's stderr. ffmpeg can print the
+ * summary for more than one filter instance (an empty one first), so
+ * every line counts.
+ */
+export function parseIdetSummary(stderr: string): {
+  interlaced: number;
+  progressive: number;
+} {
+  let interlaced = 0;
+  let progressive = 0;
+  for (const m of stderr.matchAll(
+    /Multi frame detection: TFF:\s*(\d+) BFF:\s*(\d+) Progressive:\s*(\d+)/g,
+  )) {
+    interlaced += Number(m[1]) + Number(m[2]);
+    progressive += Number(m[3]);
+  }
+  return { interlaced, progressive };
+}
+
+/**
+ * Whether the picture is interlaced — combed on motion — judged from a
+ * short sample, since flags can't be trusted: YouTube's 1080p stream of
+ * an older broadcast carries the combing baked into progressive frames.
+ */
+export async function detectInterlace(
+  filePath: string,
+  startSeconds = 0,
+): Promise<boolean> {
+  const { stderr } = await run(
+    FFMPEG,
+    [
+      "-hide_banner", "-nostdin",
+      "-ss", startSeconds.toFixed(3),
+      "-i", filePath,
+      "-an",
+      "-frames:v", "60",
+      "-vf", "idet",
+      "-f", "null", "-",
+    ],
+    { timeoutMs: 60_000 },
+  );
+  const { interlaced, progressive } = parseIdetSummary(stderr);
+  const judged = interlaced + progressive;
+  return judged > 0 && interlaced / judged > 0.5;
+}
+
 export async function generateThumbnail(
   inputPath: string,
   outputPath: string,

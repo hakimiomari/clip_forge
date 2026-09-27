@@ -14,6 +14,7 @@ import {
 import { createWorkDir } from "../lib/media";
 import { uploadFile } from "../lib/storage";
 import { refundCredits } from "../lib/credits";
+import { detectInterlace } from "../lib/ffmpeg";
 import { downloadYouTubeSection } from "../lib/youtube";
 import { searchYouTube } from "../lib/compile/search";
 import { findMoments } from "../lib/compile/moments";
@@ -210,6 +211,7 @@ export async function processCompilation(job: Job<CompilationJob>): Promise<void
             seconds: moment.end - moment.start,
             format: record.format,
             credit: `${moment.channel} — ${moment.videoTitle}`,
+            deinterlace: await detectInterlace(sectionPath).catch(() => false),
           });
           return renderedPath;
         } catch (err) {

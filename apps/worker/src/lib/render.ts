@@ -37,6 +37,8 @@ export interface RenderSpec {
   hasAudio: boolean;
   watermarkText?: string;
   fps?: number;
+  /** Source is interlaced: deinterlace before the layout */
+  deinterlace?: boolean;
   /** Advanced range effects; times relative to the trimmed clip */
   rangeEffects?: RangeEffect[];
   /** Glow sprite PNG (required when a glow_trail effect is present) */
@@ -173,11 +175,17 @@ export function buildFilterGraph(spec: RenderSpec): string {
   const map = specTimeMap(spec);
   const outDur = map.outputDuration;
 
-  // ── Speed chain (slow motion / speed-up / freeze) ──────
+  // ── Deinterlace ────────────────────────────────────────
+  // First, so every later step sees clean frames. bwdif keeps the frame
+  // rate (one frame per pair of fields) and beats yadif on detail.
   let vIn = "0:v";
   let aIn = "0:a";
+  if (spec.deinterlace) {
+    chains.push(`[0:v]bwdif=mode=send_frame:parity=auto:deint=all[vdi]`);
+    vIn = "vdi";
+  }
   if (map.hasSpeedChanges && !spec.backgroundRemoval) {
-    const speed = buildSpeedChain(map, spec.hasAudio);
+    const speed = buildSpeedChain(map, spec.hasAudio, vIn, "0:a", fps);
     chains.push(...speed.chains);
     vIn = speed.vOut;
     if (speed.aOut) aIn = speed.aOut;
@@ -369,8 +377,11 @@ export function buildRenderArgs(spec: RenderSpec): string[] {
   args.push(
     "-filter_complex_threads", threads,
     "-c:v", "libx264",
-    "-preset", "veryfast",
-    "-crf", "20",
+    // Quality over size: CRF 17 is visually transparent for sports
+    // footage where CRF 20 showed blocking in crowds and grass; "fast"
+    // costs under twice the encode time of "veryfast" for cleaner detail
+    "-preset", "fast",
+    "-crf", "17",
     "-pix_fmt", "yuv420p",
     "-threads", threads,
     // Cap x264's lookahead buffering — the largest allocation after the
@@ -384,6 +395,12 @@ export function buildRenderArgs(spec: RenderSpec): string[] {
     spec.outputPath,
   );
   return args;
+}
+
+/** Output frame rate for a source: its own, rounded, between 24 and 60. */
+export function sourceFps(probed: number | null | undefined): number {
+  if (!probed || probed <= 0) return 30;
+  return Math.min(60, Math.max(24, Math.round(probed)));
 }
 
 export async function runRender(

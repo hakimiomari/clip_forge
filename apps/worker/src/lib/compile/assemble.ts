@@ -64,6 +64,8 @@ export async function renderMoment(options: {
   seconds: number;
   format: string;
   credit?: string | null;
+  /** Source is interlaced: clean the comb lines first */
+  deinterlace?: boolean;
 }): Promise<void> {
   const { width, height } =
     COMPILATION_RESOLUTIONS[options.format] ?? COMPILATION_RESOLUTIONS.vertical!;
@@ -73,7 +75,7 @@ export async function renderMoment(options: {
   const qh = Math.round(height / 4 / 2) * 2;
 
   const chains = [
-    `[0:v]fps=${fps},split=2[bg][fg]`,
+    `[0:v]${options.deinterlace ? "bwdif=mode=send_frame:parity=auto:deint=all," : ""}fps=${fps},split=2[bg][fg]`,
     `[bg]scale=${qw}:${qh}:force_original_aspect_ratio=increase,crop=${qw}:${qh},boxblur=luma_radius=7:luma_power=2,eq=brightness=-0.08,scale=${width}:${height}[bgout]`,
     `[fg]scale=${width}:${height}:force_original_aspect_ratio=decrease[fgout]`,
     `[bgout][fgout]overlay=(W-w)/2:(H-h)/2[flat]`,
@@ -101,7 +103,7 @@ export async function renderMoment(options: {
       "-map", "0:a?",
       "-af", "afade=t=in:st=0:d=0.3,afade=t=out:st=" + fadeOut + ":d=0.35,loudnorm=I=-16:TP=-1.5:LRA=11",
       "-t", duration.toFixed(2),
-      "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+      "-c:v", "libx264", "-preset", "fast", "-crf", "17",
       "-pix_fmt", "yuv420p", "-r", String(fps),
       "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2",
       options.outPath,

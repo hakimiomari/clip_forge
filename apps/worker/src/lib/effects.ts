@@ -25,6 +25,8 @@ export function buildSpeedChain(
   hasAudio: boolean,
   inLabelV = "0:v",
   inLabelA = "0:a",
+  /** Output frame rate, so synthesized frames match it */
+  fps = 30,
 ): { chains: string[]; vOut: string; aOut: string | null } {
   const chains: string[] = [];
   const vParts: string[] = [];
@@ -52,9 +54,9 @@ export function buildSpeedChain(
       // blur) or mci (real optical flow — slow but ultra-smooth)
       const synth =
         s.interpolate === "mci"
-          ? ",minterpolate=fps=30:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1"
+          ? `,minterpolate=fps=${fps}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1`
           : s.interpolate === "blend"
-            ? ",minterpolate=fps=30:mi_mode=blend"
+            ? `,minterpolate=fps=${fps}:mi_mode=blend`
             : "";
       chains.push(
         `[${inLabelV}]trim=start=${s.srcStart.toFixed(3)}:end=${s.srcEnd.toFixed(3)},setpts=(PTS-STARTPTS)/${s.speed}${synth}[${v}]`,

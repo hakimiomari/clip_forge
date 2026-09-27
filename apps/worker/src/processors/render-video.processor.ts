@@ -6,8 +6,8 @@ import { planTotalDuration, renderCost } from "@clipforge/shared-types";
 import { buildAssDocument, type CaptionLine } from "../lib/captions";
 import { createWorkDir, fetchToWorkDir } from "../lib/media";
 import { concatParts, type ConcatPart } from "../lib/concat";
-import { runRender, type RenderSpec } from "../lib/render";
-import { probeVideo } from "../lib/ffmpeg";
+import { runRender, sourceFps, type RenderSpec } from "../lib/render";
+import { detectInterlace, probeVideo } from "../lib/ffmpeg";
 import { uploadFile } from "../lib/storage";
 import { publishProgress } from "../lib/progress";
 import { refundCredits } from "../lib/credits";
@@ -317,6 +317,12 @@ export async function processRenderVideo(job: Job<RenderVideoJob>): Promise<void
     // Respect the actual stream layout
     const probe = await probeVideo(inputPath);
     spec.hasAudio = probe.hasAudio;
+    // Keep the source's frame rate (50/60fps sport stays smooth) up to
+    // 60; the AI cut-out mask is generated at 30fps and must match
+    spec.fps = bgRemoval ? 30 : sourceFps(probe.fps);
+    // Older broadcasts arrive with the interlacing baked in; left alone,
+    // every moving edge shows comb lines at full resolution
+    spec.deinterlace = await detectInterlace(inputPath, renderStart).catch(() => false);
 
     await emit(8, "Rendering video");
     let lastPersist = 0;
