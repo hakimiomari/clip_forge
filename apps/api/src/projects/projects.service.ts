@@ -12,6 +12,7 @@ import {
   type SourceDownloadInfo,
   type SourceDownloadStatus,
 } from "@clipforge/shared-types";
+import { downloadFileName } from "../common/file-names";
 import { PrismaService } from "../prisma/prisma.service";
 import { QueuesService } from "../queues/queues.service";
 import { StorageService } from "../storage/storage.service";
@@ -390,17 +391,6 @@ export class ProjectsService {
       highlightCount: project._count.highlights,
     };
   }
-}
-
-/** "Title of the video.mp4" — safe for a Content-Disposition header. */
-function downloadFileName(title: string | null, fallback: string): string {
-  const base = (title ?? "")
-    .replace(/\.[a-z0-9]{2,4}$/i, "")
-    .replace(/[^A-Za-z0-9 ._-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 90);
-  return `${base || fallback}.mp4`;
 }
 
 function serializeSource(source: {

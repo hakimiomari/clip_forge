@@ -17,6 +17,7 @@ import {
   type CompilationJob,
   type GeneratedVideoJob,
   type SourceDownloadJob,
+  type VideoDownloadJob,
   type HighlightGenerationJob,
   type RenderVideoJob,
 } from "@clipforge/shared-types";
@@ -85,6 +86,15 @@ export class QueuesService implements OnModuleDestroy {
       attempts: 2,
     });
     this.logger.log(`Enqueued full download for project ${payload.projectId}`);
+    return job.id ?? "";
+  }
+
+  async enqueueVideoDownload(payload: VideoDownloadJob): Promise<string> {
+    const job = await this.queue(QUEUES.VIDEO_DOWNLOAD).add("download", payload, {
+      // A dropped connection is worth one fresh start
+      attempts: 2,
+    });
+    this.logger.log(`Enqueued download ${payload.downloadId}`);
     return job.id ?? "";
   }
 

@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   Clapperboard,
   Wand2,
+  Download,
   LayoutDashboard,
   FolderOpen,
   Loader2,
@@ -25,6 +26,7 @@ const navItems = [
   { href: "/research", label: "Research video", icon: Sparkles },
   { href: "/compile", label: "Best-of compilation", icon: Clapperboard },
   { href: "/generate", label: "AI video", icon: Wand2 },
+  { href: "/downloads", label: "Downloads", icon: Download },
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {

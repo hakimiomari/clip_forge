@@ -13,6 +13,7 @@ import { killTree, track } from "./children";
 
 export interface YouTubeInfo {
   title: string | null;
+  channel: string | null;
   thumbnailUrl: string | null;
   durationSeconds: number | null;
   width: number | null;
@@ -47,19 +48,40 @@ const CLIP_FORMAT_720 =
 const CLIP_FORMAT_FALLBACK =
   "b[height<=480][ext=mp4]/bv*[height<=480]+ba/b[height<=480]/wv*+ba/w";
 
+/** Thrown when the caller aborted a download on purpose. */
+export class DownloadCancelledError extends Error {
+  constructor() {
+    super("Download cancelled");
+    this.name = "DownloadCancelledError";
+  }
+}
+
 /** Runs yt-dlp with args (no shell — args are never interpolated). */
 function runYtDlp(
   args: string[],
   timeoutMs: number,
   onLine?: (line: string) => void,
+  signal?: AbortSignal,
 ): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DownloadCancelledError());
+      return;
+    }
     // Own process group, so a timeout also takes down the ffmpeg that
     // yt-dlp spawns for section downloads and merges
     const child = track(spawn(YTDLP, args, { windowsHide: true, detached: true }));
     let stdout = "";
     let stderr = "";
     let pendingLine = "";
+    signal?.addEventListener(
+      "abort",
+      () => {
+        killTree(child);
+        reject(new DownloadCancelledError());
+      },
+      { once: true },
+    );
     const timeout = setTimeout(() => {
       killTree(child);
       reject(new Error(`YouTube request timed out after ${Math.round(timeoutMs / 60_000)} min`));
@@ -171,6 +193,8 @@ export async function fetchYouTubeInfo(videoId: string): Promise<YouTubeInfo> {
   );
   const info = JSON.parse(stdout) as {
     title?: string;
+    channel?: string;
+    uploader?: string;
     thumbnail?: string;
     duration?: number;
     width?: number;
@@ -182,6 +206,7 @@ export async function fetchYouTubeInfo(videoId: string): Promise<YouTubeInfo> {
   const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
   return {
     title: info.title ?? null,
+    channel: info.channel ?? info.uploader ?? null,
     thumbnailUrl: info.thumbnail ?? null,
     durationSeconds: num(info.duration),
     width: num(info.width),
@@ -377,54 +402,74 @@ export async function downloadAnalysisMedia(
   return { audioPath, videoPath };
 }
 
+export type FullDownloadQuality = "1080p" | "720p" | "480p" | "audio";
+
 /**
- * The complete video for the user to keep: best H.264 up to 1080p, which
- * plays on every phone and editor, merged with the best AAC audio. Other
- * codecs only when YouTube has no H.264 rendition.
+ * The format for a complete video the user keeps: best H.264 at or below
+ * the chosen height, which plays on every phone and editor, merged with
+ * the best AAC audio. Other codecs only when YouTube has no H.264
+ * rendition. "audio" is the AAC track alone.
  */
-const FULL_VIDEO_FORMAT =
-  "bv*[height<=1080][vcodec^=avc1]+ba[ext=m4a]/" +
-  "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/" +
-  "b[height<=1080][ext=mp4]/bv*[height<=1080]+ba/b";
+export function fullVideoFormat(quality: FullDownloadQuality): string {
+  if (quality === "audio") return "ba[ext=m4a]/ba";
+  const h = quality === "480p" ? 480 : quality === "720p" ? 720 : 1080;
+  return (
+    `bv*[height<=${h}][vcodec^=avc1]+ba[ext=m4a]/` +
+    `bv*[height<=${h}][ext=mp4]+ba[ext=m4a]/` +
+    `b[height<=${h}][ext=mp4]/bv*[height<=${h}]+ba/b`
+  );
+}
 
 /**
  * Overall progress (0–1) from one yt-dlp progress line, or null for any
  * other line. The video track (vcodec set) is ~92% of the bytes and comes
  * first; the audio track (vcodec "none") is the rest.
  */
-export function parseFullDownloadProgress(line: string): number | null {
+export function parseFullDownloadProgress(line: string, audioOnly = false): number | null {
   const m = line.match(/CFPROGRESS\s+(\S+)\s+([\d.]+)%/);
   if (!m) return null;
   const pct = Math.min(1, Number(m[2]) / 100);
+  // An audio-only download is one track: its own percentage is the answer
+  if (audioOnly) return pct;
   return m[1] === "none" ? 0.92 + pct * 0.08 : pct * 0.92;
 }
 
 /**
- * Downloads the whole video to `outPath` as MP4. yt-dlp fetches the
- * video track and then the audio track, so progress is weighted: the
- * video is nearly all of the bytes.
+ * Downloads the whole video to `outPath` — MP4, or M4A for "audio".
+ * yt-dlp fetches the video track and then the audio track, so progress
+ * is weighted: the video is nearly all of the bytes.
  */
 export async function downloadFullVideo(
   videoId: string,
   outPath: string,
-  options: { timeoutMs: number; onProgress?: (fraction: number) => void },
+  options: {
+    timeoutMs: number;
+    quality?: FullDownloadQuality;
+    onProgress?: (fraction: number) => void;
+    /** Aborting stops yt-dlp (and its ffmpeg) at once */
+    signal?: AbortSignal;
+  },
 ): Promise<void> {
+  const quality = options.quality ?? "1080p";
+  const audioOnly = quality === "audio";
   await runYtDlp(
     [
       ...baseArgs(),
       "--newline",
       "--progress-template",
       "download:CFPROGRESS %(info.vcodec)s %(progress._percent_str)s",
-      "-f", FULL_VIDEO_FORMAT,
-      "--merge-output-format", "mp4",
+      "-f", fullVideoFormat(quality),
+      // A single audio track needs no merging
+      ...(audioOnly ? [] : ["--merge-output-format", "mp4"]),
       "-o", outPath,
       "--", watchUrl(videoId),
     ],
     options.timeoutMs,
     (line) => {
-      const fraction = parseFullDownloadProgress(line);
+      const fraction = parseFullDownloadProgress(line, audioOnly);
       if (fraction !== null) options.onProgress?.(fraction);
     },
+    options.signal,
   );
   const exists = await stat(outPath).then((s) => s.size > 0, () => false);
   if (!exists) throw new Error("YouTube: the full video download produced no file");

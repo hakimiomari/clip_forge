@@ -19,6 +19,7 @@ export const QUEUES = {
   COMPILATION: "compilation",
   GENERATED_VIDEO: "generated-video",
   SOURCE_DOWNLOAD: "source-download",
+  VIDEO_DOWNLOAD: "video-download",
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
@@ -132,6 +133,11 @@ export interface FilmstripJob {
 
 export interface SourceDownloadJob {
   projectId: string;
+  userId: string;
+}
+
+export interface VideoDownloadJob {
+  downloadId: string;
   userId: string;
 }
 
