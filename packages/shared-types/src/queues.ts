@@ -18,6 +18,7 @@ export const QUEUES = {
   RESEARCH_VIDEO: "research-video",
   COMPILATION: "compilation",
   GENERATED_VIDEO: "generated-video",
+  SOURCE_DOWNLOAD: "source-download",
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
@@ -125,6 +126,11 @@ export interface ResearchVideoJob {
 
 /** Builds the timeline's frame-thumbnail sprite sheet for a source. */
 export interface FilmstripJob {
+  projectId: string;
+  userId: string;
+}
+
+export interface SourceDownloadJob {
   projectId: string;
   userId: string;
 }

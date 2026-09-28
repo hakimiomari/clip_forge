@@ -219,6 +219,17 @@ model VideoSource {
   filmstripFrameWidth  Int?
   filmstripFrameHeight Int?
   filmstripError       String?
+  // Complete video for download. A YouTube import keeps no copy (only the
+  // sections a clip needs are ever fetched), so the whole video is fetched
+  // on request and kept here. Uploads already have it in storageKey.
+  downloadKey      String?
+  /** NONE | PENDING | DOWNLOADING | SAVING | READY | FAILED */
+  downloadStatus   String  @default("NONE")
+  downloadProgress Int     @default(0)
+  downloadError    String?
+  downloadBytes    BigInt?
+  downloadWidth    Int?
+  downloadHeight   Int?
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 

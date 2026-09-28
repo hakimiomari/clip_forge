@@ -74,6 +74,17 @@ export class ProjectsController {
     return this.projects.getSource(id, user.id);
   }
 
+  @Get(":id/source/download")
+  getSourceDownload(@CurrentUser() user: RequestUser, @Param("id") id: string) {
+    return this.projects.getSourceDownload(id, user.id);
+  }
+
+  @Post(":id/source/download")
+  @HttpCode(202)
+  requestSourceDownload(@CurrentUser() user: RequestUser, @Param("id") id: string) {
+    return this.projects.requestSourceDownload(id, user.id);
+  }
+
   @Get(":id/filmstrip")
   getFilmstrip(@CurrentUser() user: RequestUser, @Param("id") id: string) {
     return this.projects.getFilmstrip(id, user.id);

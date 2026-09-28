@@ -25,3 +25,14 @@ test("parseJson3Captions turns events into trimmed, timed segments", () => {
     { startTime: 5.318, endTime: 7.974, text: "the cool thing" },
   ]);
 });
+
+test("parseFullDownloadProgress weights the video track, then the audio", async () => {
+  const { parseFullDownloadProgress } = await import("./youtube");
+  assert.equal(parseFullDownloadProgress("[download] Destination: x.f137.mp4"), null);
+  assert.equal(parseFullDownloadProgress("CFPROGRESS avc1.640028   0.0%"), 0);
+  // Halfway through the video track is 46% overall
+  assert.equal(parseFullDownloadProgress("CFPROGRESS avc1.640028  50.0%"), 0.46);
+  // The audio track starts where the video left off
+  assert.equal(parseFullDownloadProgress("CFPROGRESS none   0.0%"), 0.92);
+  assert.equal(parseFullDownloadProgress("CFPROGRESS none 100.0%"), 1);
+});

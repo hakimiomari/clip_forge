@@ -377,6 +377,59 @@ export async function downloadAnalysisMedia(
   return { audioPath, videoPath };
 }
 
+/**
+ * The complete video for the user to keep: best H.264 up to 1080p, which
+ * plays on every phone and editor, merged with the best AAC audio. Other
+ * codecs only when YouTube has no H.264 rendition.
+ */
+const FULL_VIDEO_FORMAT =
+  "bv*[height<=1080][vcodec^=avc1]+ba[ext=m4a]/" +
+  "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/" +
+  "b[height<=1080][ext=mp4]/bv*[height<=1080]+ba/b";
+
+/**
+ * Overall progress (0–1) from one yt-dlp progress line, or null for any
+ * other line. The video track (vcodec set) is ~92% of the bytes and comes
+ * first; the audio track (vcodec "none") is the rest.
+ */
+export function parseFullDownloadProgress(line: string): number | null {
+  const m = line.match(/CFPROGRESS\s+(\S+)\s+([\d.]+)%/);
+  if (!m) return null;
+  const pct = Math.min(1, Number(m[2]) / 100);
+  return m[1] === "none" ? 0.92 + pct * 0.08 : pct * 0.92;
+}
+
+/**
+ * Downloads the whole video to `outPath` as MP4. yt-dlp fetches the
+ * video track and then the audio track, so progress is weighted: the
+ * video is nearly all of the bytes.
+ */
+export async function downloadFullVideo(
+  videoId: string,
+  outPath: string,
+  options: { timeoutMs: number; onProgress?: (fraction: number) => void },
+): Promise<void> {
+  await runYtDlp(
+    [
+      ...baseArgs(),
+      "--newline",
+      "--progress-template",
+      "download:CFPROGRESS %(info.vcodec)s %(progress._percent_str)s",
+      "-f", FULL_VIDEO_FORMAT,
+      "--merge-output-format", "mp4",
+      "-o", outPath,
+      "--", watchUrl(videoId),
+    ],
+    options.timeoutMs,
+    (line) => {
+      const fraction = parseFullDownloadProgress(line);
+      if (fraction !== null) options.onProgress?.(fraction);
+    },
+  );
+  const exists = await stat(outPath).then((s) => s.size > 0, () => false);
+  if (!exists) throw new Error("YouTube: the full video download produced no file");
+}
+
 export interface HeatmapPoint {
   start: number;
   end: number;

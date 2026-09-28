@@ -148,6 +148,30 @@ export interface FilmstripInfo {
   error?: string | null;
 }
 
+export type SourceDownloadStatus =
+  | "NONE"
+  | "PENDING"
+  | "DOWNLOADING"
+  | "SAVING"
+  | "READY"
+  | "FAILED";
+
+/** The project's complete source video, as a download. */
+export interface SourceDownloadInfo {
+  status: SourceDownloadStatus;
+  /** 0–100 while DOWNLOADING */
+  progress: number;
+  error: string | null;
+  /** Presigned, saves as `fileName` — present only when READY */
+  url: string | null;
+  fileName: string;
+  sizeBytes: number | null;
+  width: number | null;
+  height: number | null;
+  /** YOUTUBE needs fetching first; UPLOAD is ready as soon as it is imported */
+  sourceType: string;
+}
+
 export interface ClipDetail extends ClipSummary {
   renderJob: {
     id: string;
