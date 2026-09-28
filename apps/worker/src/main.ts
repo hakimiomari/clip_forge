@@ -32,6 +32,48 @@ import { getPrismaClient } from "@clipforge/database";
 
 const connection = new IORedis(env.REDIS_URL, { maxRetriesPerRequest: null });
 
+/**
+ * ioredis reports a refused connection as an AggregateError whose own
+ * message is empty, and every queue reports it separately on every
+ * retry — eight blank "worker error:" lines a second, which buries
+ * whatever else the log had to say. These helpers turn that into one
+ * actionable line, repeated at most every 15 seconds.
+ */
+function describeError(err: unknown): string {
+  const e = err as {
+    code?: string;
+    message?: string;
+    name?: string;
+    errors?: Array<{ code?: string; message?: string }>;
+  };
+  const code = e?.code ?? e?.errors?.find((inner) => inner?.code)?.code;
+  const message =
+    e?.message || e?.errors?.find((inner) => inner?.message)?.message || "";
+  if (code) return message ? `${code}: ${message}` : code;
+  return message || e?.name || String(err);
+}
+
+let lastConnectionNotice = 0;
+function reportedAsConnectionProblem(err: unknown): boolean {
+  const text = describeError(err);
+  if (!/ECONNREFUSED|ENOTFOUND|ETIMEDOUT|ECONNRESET|EPIPE/.test(text)) return false;
+  const now = Date.now();
+  if (now - lastConnectionNotice < 15_000) return true;
+  lastConnectionNotice = now;
+  console.error("");
+  console.error(`  Cannot reach Redis at ${env.REDIS_URL} (${text}).`);
+  console.error("  Start the infrastructure with:  pnpm infra:up");
+  console.error("  Queues reconnect on their own once it is up.");
+  console.error("");
+  return true;
+}
+
+// Without a listener ioredis prints its own "Unhandled error event" noise
+connection.on("error", (err) => {
+  if (reportedAsConnectionProblem(err)) return;
+  console.error(`Redis connection error: ${describeError(err)}`);
+});
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const registry: Array<{ queue: string; processor: Processor<any>; concurrency: number }> = [
   { queue: QUEUES.VIDEO_IMPORT, processor: processVideoImport, concurrency: 2 },
@@ -76,7 +118,9 @@ const workers = registry.map(({ queue, processor, concurrency }) => {
     }
   });
   worker.on("error", (err) => {
-    console.error(`[${queue}] worker error: ${err.message}`);
+    // Redis being down is one fault, not one per queue — report it once
+    if (reportedAsConnectionProblem(err)) return;
+    console.error(`[${queue}] worker error: ${describeError(err)}`);
   });
   return worker;
 });
