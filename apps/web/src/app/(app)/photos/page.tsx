@@ -1,13 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, Images, Loader2, RefreshCcw, Trash2 } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  Images,
+  Loader2,
+  RefreshCcw,
+  Trash2,
+  X,
+} from "lucide-react";
 import {
   PHOTO_COUNTS,
   PHOTO_MODES,
   type PhotoPickMode,
   type PhotoSetSummary,
+  type VideoPhoto,
 } from "@clipforge/shared-types";
 import { api, ApiError } from "@/lib/api";
 import { cn, formatBytes, formatDuration, formatRelativeTime } from "@/lib/utils";
@@ -38,6 +48,8 @@ export default function PhotosPage() {
   const [count, setCount] = useState<number>(24);
   const [rightsConfirmed, setRightsConfirmed] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** The photo open full size: which set, and which photo in it */
+  const [viewing, setViewing] = useState<{ setId: string; index: number } | null>(null);
 
   const { data: sets, isLoading } = useQuery({
     queryKey: ["photo-sets"],
@@ -191,11 +203,146 @@ export default function PhotosPage() {
                     remove.mutate(set.id);
                   }
                 }}
+                onOpen={(index) => setViewing({ setId: set.id, index })}
               />
             ))}
           </div>
         )}
       </section>
+
+      {viewing && (() => {
+        const set = (sets ?? []).find((s) => s.id === viewing.setId);
+        const photos = set?.photos ?? [];
+        const photo = photos[viewing.index];
+        if (!set || !photo) return null;
+        return (
+          <PhotoViewer
+            photo={photo}
+            title={set.title ?? set.url}
+            position={viewing.index + 1}
+            total={photos.length}
+            onClose={() => setViewing(null)}
+            onStep={(delta) =>
+              setViewing({
+                setId: set.id,
+                index: (viewing.index + delta + photos.length) % photos.length,
+              })
+            }
+          />
+        );
+      })()}
+    </div>
+  );
+}
+
+/**
+ * One photo over the page, close to full screen. Closes on the X, on
+ * Escape, or on a click outside the picture; ← → step through the set.
+ */
+function PhotoViewer({
+  photo,
+  title,
+  position,
+  total,
+  onClose,
+  onStep,
+}: {
+  photo: VideoPhoto;
+  title: string;
+  position: number;
+  total: number;
+  onClose: () => void;
+  onStep: (delta: 1 | -1) => void;
+}) {
+  const onKey = useCallback(
+    (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      else if (e.key === "ArrowRight") onStep(1);
+      else if (e.key === "ArrowLeft") onStep(-1);
+    },
+    [onClose, onStep],
+  );
+  useEffect(() => {
+    window.addEventListener("keydown", onKey);
+    // The page behind shouldn't scroll while the viewer is up
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = previous;
+    };
+  }, [onKey]);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Photo ${position} of ${total}`}
+      className="fixed inset-0 z-50 flex flex-col bg-black/90"
+      onClick={onClose}
+    >
+      <div
+        className="flex items-center justify-between gap-3 px-4 py-3 text-sm text-white"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="min-w-0">
+          <p className="truncate font-medium">{title}</p>
+          <p className="text-xs text-white/70">
+            {clock(photo.time)} · photo {position} of {total}
+            {photo.width && photo.height ? ` · ${photo.width}×${photo.height}` : ""}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <a href={photo.downloadUrl} download={photo.fileName}>
+            <Button size="sm" variant="secondary">
+              <Download className="h-4 w-4" />
+              Download
+            </Button>
+          </a>
+          <Button size="sm" variant="secondary" onClick={onClose} aria-label="Close">
+            <X className="h-4 w-4" />
+            Close
+          </Button>
+        </div>
+      </div>
+
+      <div className="relative flex min-h-0 flex-1 items-center justify-center px-14 pb-4">
+        <img
+          src={photo.viewUrl}
+          alt={`Photo at ${clock(photo.time)}`}
+          className="max-h-full max-w-full rounded-md object-contain shadow-2xl"
+          onClick={(e) => e.stopPropagation()}
+        />
+        {total > 1 && (
+          <>
+            <button
+              type="button"
+              aria-label="Previous photo"
+              onClick={(e) => {
+                e.stopPropagation();
+                onStep(-1);
+              }}
+              className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full bg-white/10 p-2 text-white hover:bg-white/25"
+            >
+              <ChevronLeft className="h-6 w-6" />
+            </button>
+            <button
+              type="button"
+              aria-label="Next photo"
+              onClick={(e) => {
+                e.stopPropagation();
+                onStep(1);
+              }}
+              className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-white/10 p-2 text-white hover:bg-white/25"
+            >
+              <ChevronRight className="h-6 w-6" />
+            </button>
+          </>
+        )}
+      </div>
+      <p className="pb-3 text-center text-xs text-white/50" onClick={(e) => e.stopPropagation()}>
+        Esc to close · ← → for the next photo · click outside the picture to close
+      </p>
     </div>
   );
 }
@@ -231,11 +378,14 @@ function PhotoSetCard({
   onRetry,
   retrying,
   onDelete,
+  onOpen,
 }: {
   set: PhotoSetSummary;
   onRetry: () => void;
   retrying: boolean;
   onDelete: () => void;
+  /** Show this photo (by index) full size */
+  onOpen: (index: number) => void;
 }) {
   const working = WORKING.includes(set.status);
   const modeLabel = PHOTO_MODES.find((m) => m.value === set.mode)?.label;
@@ -305,7 +455,7 @@ function PhotoSetCard({
           {first && (
             <p className="mt-1 text-xs text-muted">
               {first.width && first.height ? `${first.width}×${first.height} JPEG` : "JPEG"} ·
-              click a photo to open it full size
+              click a photo to view it full size
             </p>
           )}
         </div>
@@ -318,14 +468,19 @@ function PhotoSetCard({
               key={photo.index}
               className="group relative overflow-hidden rounded-md bg-surface-raised"
             >
-              <a href={photo.viewUrl} target="_blank" rel="noreferrer">
+              <button
+                type="button"
+                onClick={() => onOpen(photo.index)}
+                className="block w-full"
+                aria-label={`View photo at ${clock(photo.time)} full size`}
+              >
                 <img
                   src={photo.viewUrl}
                   alt={`Photo at ${clock(photo.time)}`}
                   loading="lazy"
                   className="aspect-video w-full object-cover transition-transform group-hover:scale-[1.02]"
                 />
-              </a>
+              </button>
               <span className="pointer-events-none absolute bottom-1.5 left-1.5 rounded bg-black/65 px-1.5 py-0.5 text-[11px] text-white">
                 {clock(photo.time)}
               </span>
