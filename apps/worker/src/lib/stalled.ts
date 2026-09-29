@@ -8,6 +8,7 @@ import {
   type RenderVideoJob,
   type SourceDownloadJob,
   type VideoDownloadJob,
+  type VideoPhotosJob,
   type VideoImportJob,
 } from "@clipforge/shared-types";
 import { refundCredits } from "./credits";
@@ -71,6 +72,15 @@ export async function finalizeStalledJob(queue: string, job: Job): Promise<void>
     await prisma.download.updateMany({
       where: { id: downloadId, status: { in: ["PENDING", "DOWNLOADING", "SAVING"] } },
       data: { status: "FAILED", error: INTERRUPTED },
+    });
+    return;
+  }
+
+  if (queue === QUEUES.VIDEO_PHOTOS) {
+    const { photoSetId } = job.data as VideoPhotosJob;
+    await prisma.photoSet.updateMany({
+      where: { id: photoSetId, status: { in: ["PENDING", "FINDING", "CAPTURING", "SAVING"] } },
+      data: { status: "FAILED", error: INTERRUPTED, step: "Failed" },
     });
     return;
   }

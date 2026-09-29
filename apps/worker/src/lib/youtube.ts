@@ -324,6 +324,55 @@ export async function resolveYouTubeStreams(videoId: string): Promise<YouTubeStr
 }
 
 /**
+ * Direct URL of the best video-only stream up to `maxHeight`, for ffmpeg
+ * to seek into. Seeking reads a few hundred KB around each point, so
+ * this is cheap however long the video is — unlike a sequential read,
+ * which YouTube throttles to playback speed.
+ */
+export async function resolveBestVideoUrl(videoId: string, maxHeight = 1080): Promise<string> {
+  const { stdout } = await runYtDlp(
+    [
+      ...baseArgs(),
+      "-g",
+      "-f", `bv*[height<=${maxHeight}][ext=mp4]/bv*[height<=${maxHeight}]/b[height<=${maxHeight}]/b`,
+      "--", watchUrl(videoId),
+    ],
+    2 * 60_000,
+  );
+  const url = stdout.split(/\r?\n/).map((l) => l.trim()).find(Boolean);
+  if (!url) throw new Error("YouTube: no playable video stream found");
+  return url;
+}
+
+/**
+ * A small picture-only copy (≤240p) to scan for scene changes — a few MB
+ * per minute, fetched in parallel chunks by yt-dlp.
+ */
+export async function downloadLowResVideo(
+  videoId: string,
+  outPath: string,
+  options: { timeoutMs: number; onProgress?: (fraction: number) => void },
+): Promise<void> {
+  await runYtDlp(
+    [
+      ...baseArgs(),
+      "--newline",
+      "--progress-template", "download:CFPROGRESS %(progress._percent_str)s",
+      "-f", "bv*[height<=240][ext=mp4]/bv*[height<=360][ext=mp4]/bv*[height<=360]/wv*",
+      "-o", outPath,
+      "--", watchUrl(videoId),
+    ],
+    options.timeoutMs,
+    (line) => {
+      const pct = line.match(/CFPROGRESS\s+([\d.]+)%/);
+      if (pct?.[1]) options.onProgress?.(Math.min(1, Number(pct[1]) / 100));
+    },
+  );
+  const exists = await stat(outPath).then((s) => s.size > 0, () => false);
+  if (!exists) throw new Error("YouTube: the scan copy produced no file");
+}
+
+/**
  * Pulls the media that analysis reads into `workDir`.
  *
  * Analysis used to point ffmpeg straight at the CDN URLs, but YouTube

@@ -12,6 +12,7 @@ import { processCompilation } from "./processors/compilation.processor";
 import { processGeneratedVideo } from "./processors/generated-video.processor";
 import { processSourceDownload } from "./processors/source-download.processor";
 import { processVideoDownload } from "./processors/video-download.processor";
+import { processVideoPhotos } from "./processors/video-photos.processor";
 import { closeProgressPublisher } from "./lib/progress";
 import { checkFfmpegCapabilities } from "./lib/ffmpeg";
 import { finalizeStalledJob, isStalledFailure } from "./lib/stalled";
@@ -86,6 +87,7 @@ const registry: Array<{ queue: string; processor: Processor<any>; concurrency: n
   { queue: QUEUES.GENERATED_VIDEO, processor: processGeneratedVideo, concurrency: 1 },
   { queue: QUEUES.SOURCE_DOWNLOAD, processor: processSourceDownload, concurrency: 1 },
   { queue: QUEUES.VIDEO_DOWNLOAD, processor: processVideoDownload, concurrency: 1 },
+  { queue: QUEUES.VIDEO_PHOTOS, processor: processVideoPhotos, concurrency: 1 },
 ];
 
 /**
