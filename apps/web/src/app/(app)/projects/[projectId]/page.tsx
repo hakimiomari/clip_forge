@@ -28,6 +28,7 @@ import { ClipCard } from "@/components/projects/clip-card";
 import { TranscriptPanel } from "@/components/projects/transcript-panel";
 import { TimelineEditor } from "@/components/projects/timeline-editor";
 import { AutoShortsCard } from "@/components/projects/auto-shorts-card";
+import { FullVideoDownload } from "@/components/projects/full-video-download";
 
 const PROCESSING_STATUSES = [
   "IMPORTING",
@@ -240,6 +241,10 @@ export default function ProjectDetailPage({
               </div>
             </dl>
           </Card>
+
+          {project.source?.duration != null && project.status !== "IMPORTING" && (
+            <FullVideoDownload projectId={projectId} />
+          )}
 
           {canGenerate ? (
             <>

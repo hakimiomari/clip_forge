@@ -72,23 +72,63 @@ export function buildImagePrompt(topic: string, sentence: string): string {
     : `${topic}. ${STYLE_SUFFIX}`;
 }
 
-/** A free public service refuses under load; these are worth waiting out. */
-const ATTEMPT_DELAYS_MS = [0, 3000, 8000];
+/**
+ * The service queues one request per network address and refuses the
+ * rest outright ("Queue full for IP … max: 1"), and a picture can take
+ * up to a minute — so the waits between attempts are long.
+ */
+const ATTEMPT_DELAYS_MS = [0, 5000, 15000, 30000, 45000];
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * Generates one scene picture. Returns false when the service could not
- * produce one, so the caller can fall back rather than lose the scene.
+ * One request in flight at a time, across every job in this process:
+ * two builders drawing at once would only get each other refused.
  */
-export async function generateSceneImage(options: {
+let serviceSlot: Promise<unknown> = Promise.resolve();
+function withServiceSlot<T>(task: () => Promise<T>): Promise<T> {
+  const run = serviceSlot.then(task, task);
+  serviceSlot = run.catch(() => undefined);
+  return run;
+}
+
+export type ImageResult = { ok: true } | { ok: false; reason: string };
+
+/** The service's own explanation when it refuses, else the status. */
+async function describeRefusal(response: Response): Promise<string> {
+  const text = await response.text().catch(() => "");
+  try {
+    const parsed = JSON.parse(text) as { error?: string; message?: string };
+    const detail = [parsed.error, parsed.message].filter(Boolean).join(": ");
+    if (detail) return `HTTP ${response.status} ${detail}`.slice(0, 140);
+  } catch {
+    // Not JSON — the status is all we know
+  }
+  return `HTTP ${response.status}`;
+}
+
+/**
+ * Generates one scene picture. A failed result carries the service's
+ * reason, so the caller can fall back or tell the user why.
+ */
+export function generateSceneImage(options: {
   prompt: string;
   outPath: string;
   width: number;
   height: number;
   /** Fixed per scene so a retry of the same video looks the same */
   seed: number;
-}): Promise<boolean> {
+}): Promise<ImageResult> {
+  return withServiceSlot(() => generateSceneImageNow(options));
+}
+
+async function generateSceneImageNow(options: {
+  prompt: string;
+  outPath: string;
+  width: number;
+  height: number;
+  seed: number;
+}): Promise<ImageResult> {
   let lastError = "";
   for (const [attempt, delay] of ATTEMPT_DELAYS_MS.entries()) {
     if (delay) await sleep(delay);
@@ -110,7 +150,7 @@ export async function generateSceneImage(options: {
         redirect: "follow",
       });
       if (!response.ok || !response.body) {
-        throw new Error(`HTTP ${response.status}`);
+        throw new Error(await describeRefusal(response));
       }
       await pipeline(
         response.body as unknown as Readable,
@@ -120,7 +160,7 @@ export async function generateSceneImage(options: {
       // would render as a broken frame
       const { size } = await stat(options.outPath);
       if (size < 2048) throw new Error(`image too small (${size} bytes)`);
-      return true;
+      return { ok: true };
     } catch (err) {
       lastError = String(err).slice(0, 160);
       await unlink(options.outPath).catch(() => undefined);
@@ -132,5 +172,5 @@ export async function generateSceneImage(options: {
     }
   }
   console.warn(`Scene image generation gave up: ${lastError}`);
-  return false;
+  return { ok: false, reason: lastError };
 }

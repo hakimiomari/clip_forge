@@ -43,8 +43,8 @@ services:
       # Allow the browser to PUT/GET presigned URLs from the web app
       MINIO_API_CORS_ALLOW_ORIGIN: "http://localhost:3000"
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "9200:9000"
+      - "9201:9001"
     volumes:
       - minio-data:/data
     healthcheck:

@@ -6,6 +6,8 @@ import {
   renderCost,
   type HighlightGenerationJob,
   type RenderVideoJob,
+  type SourceDownloadJob,
+  type VideoDownloadJob,
   type VideoImportJob,
 } from "@clipforge/shared-types";
 import { refundCredits } from "./credits";
@@ -51,6 +53,25 @@ export async function finalizeStalledJob(queue: string, job: Job): Promise<void>
     if (count === 0) return;
     await refundCredits(userId, CREDIT_COSTS.generateHighlights, { projectId });
     await publishProgress({ projectId, status: "FAILED", progress: 0, step: "Highlight generation failed", error: INTERRUPTED });
+    return;
+  }
+
+  if (queue === QUEUES.SOURCE_DOWNLOAD) {
+    // Free and optional: just let the user start it again
+    const { projectId } = job.data as SourceDownloadJob;
+    await prisma.videoSource.updateMany({
+      where: { projectId, downloadStatus: { in: ["PENDING", "DOWNLOADING", "SAVING"] } },
+      data: { downloadStatus: "FAILED", downloadError: INTERRUPTED },
+    });
+    return;
+  }
+
+  if (queue === QUEUES.VIDEO_DOWNLOAD) {
+    const { downloadId } = job.data as VideoDownloadJob;
+    await prisma.download.updateMany({
+      where: { id: downloadId, status: { in: ["PENDING", "DOWNLOADING", "SAVING"] } },
+      data: { status: "FAILED", error: INTERRUPTED },
+    });
     return;
   }
 

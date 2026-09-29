@@ -15,6 +15,9 @@ import {
   type FilmstripJob,
   type ResearchVideoJob,
   type CompilationJob,
+  type GeneratedVideoJob,
+  type SourceDownloadJob,
+  type VideoDownloadJob,
   type HighlightGenerationJob,
   type RenderVideoJob,
 } from "@clipforge/shared-types";
@@ -77,6 +80,24 @@ export class QueuesService implements OnModuleDestroy {
     return job.id ?? "";
   }
 
+  async enqueueSourceDownload(payload: SourceDownloadJob): Promise<string> {
+    const job = await this.queue(QUEUES.SOURCE_DOWNLOAD).add("download", payload, {
+      // A dropped connection is worth one fresh start
+      attempts: 2,
+    });
+    this.logger.log(`Enqueued full download for project ${payload.projectId}`);
+    return job.id ?? "";
+  }
+
+  async enqueueVideoDownload(payload: VideoDownloadJob): Promise<string> {
+    const job = await this.queue(QUEUES.VIDEO_DOWNLOAD).add("download", payload, {
+      // A dropped connection is worth one fresh start
+      attempts: 2,
+    });
+    this.logger.log(`Enqueued download ${payload.downloadId}`);
+    return job.id ?? "";
+  }
+
   async enqueueResearchVideo(payload: ResearchVideoJob): Promise<string> {
     const job = await this.queue(QUEUES.RESEARCH_VIDEO).add("research", payload, {
       // Research + render is long and not safely resumable midway; the
@@ -94,6 +115,15 @@ export class QueuesService implements OnModuleDestroy {
       attempts: 1,
     });
     this.logger.log(`Enqueued compilation ${payload.compilationId}`);
+    return job.id ?? "";
+  }
+
+  async enqueueGeneratedVideo(payload: GeneratedVideoJob): Promise<string> {
+    const job = await this.queue(QUEUES.GENERATED_VIDEO).add("generate", payload, {
+      // Each shot is a paid generation; never redo them blindly
+      attempts: 1,
+    });
+    this.logger.log(`Enqueued generated video ${payload.generatedId}`);
     return job.id ?? "";
   }
 

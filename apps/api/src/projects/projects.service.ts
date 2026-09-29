@@ -6,7 +6,13 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import type { Prisma, Project, RightsType } from "@clipforge/database";
-import { CREDIT_COSTS, type FilmstripInfo } from "@clipforge/shared-types";
+import {
+  CREDIT_COSTS,
+  type FilmstripInfo,
+  type SourceDownloadInfo,
+  type SourceDownloadStatus,
+} from "@clipforge/shared-types";
+import { downloadFileName } from "../common/file-names";
 import { PrismaService } from "../prisma/prisma.service";
 import { QueuesService } from "../queues/queues.service";
 import { StorageService } from "../storage/storage.service";
@@ -136,6 +142,8 @@ export class ProjectsService {
       source?.storageKey,
       source?.audioKey,
       source?.thumbnailKey,
+      source?.downloadKey,
+      source?.filmstripKey,
       ...exportRows.map((e) => e.storageKey),
       ...clipRows.flatMap((c) => [c.renderedKey, c.previewKey]),
     ].filter((k): k is string => Boolean(k));
@@ -244,6 +252,78 @@ export class ProjectsService {
       interval: count > 0 && source.duration ? source.duration / count : 0,
       error: source.filmstripError,
     };
+  }
+
+  /**
+   * The complete source video as a download. An upload is its own
+   * original; a YouTube import has to be fetched first (see
+   * requestSourceDownload), and this reports how far that has got.
+   */
+  async getSourceDownload(projectId: string, userId: string): Promise<SourceDownloadInfo> {
+    await this.getOwned(projectId, userId);
+    const source = await this.prisma.videoSource.findUnique({ where: { projectId } });
+    if (!source) throw new NotFoundException("No source imported yet");
+
+    const fileName = downloadFileName(source.title, source.externalId ?? projectId);
+    if (source.sourceType !== "YOUTUBE") {
+      return {
+        status: source.storageKey ? "READY" : "NONE",
+        progress: source.storageKey ? 100 : 0,
+        error: null,
+        url: source.storageKey
+          ? await this.storage.presignGet(source.storageKey, { downloadFileName: fileName })
+          : null,
+        fileName,
+        sizeBytes: source.sizeBytes != null ? Number(source.sizeBytes) : null,
+        width: source.width,
+        height: source.height,
+        sourceType: source.sourceType,
+      };
+    }
+
+    const ready = source.downloadStatus === "READY" && Boolean(source.downloadKey);
+    return {
+      status: source.downloadStatus as SourceDownloadStatus,
+      progress: source.downloadProgress,
+      error: source.downloadError,
+      url: ready
+        ? await this.storage.presignGet(source.downloadKey!, { downloadFileName: fileName })
+        : null,
+      fileName,
+      sizeBytes: source.downloadBytes != null ? Number(source.downloadBytes) : null,
+      width: source.downloadWidth,
+      height: source.downloadHeight,
+      sourceType: source.sourceType,
+    };
+  }
+
+  /** Starts fetching a YouTube project's complete video, unless under way or done. */
+  async requestSourceDownload(projectId: string, userId: string): Promise<SourceDownloadInfo> {
+    await this.getOwned(projectId, userId);
+    const source = await this.prisma.videoSource.findUnique({ where: { projectId } });
+    if (!source) throw new NotFoundException("No source imported yet");
+    if (source.sourceType === "YOUTUBE") {
+      if (!source.externalId || !source.duration) {
+        throw new BadRequestException("Wait for the import to finish before downloading");
+      }
+      // Claim the slot atomically so double-clicks queue only one job
+      const { count } = await this.prisma.videoSource.updateMany({
+        where: { projectId, downloadStatus: { in: ["NONE", "FAILED"] } },
+        data: { downloadStatus: "PENDING", downloadProgress: 0, downloadError: null },
+      });
+      if (count > 0) {
+        try {
+          await this.queues.enqueueSourceDownload({ projectId, userId });
+        } catch (err) {
+          await this.prisma.videoSource.updateMany({
+            where: { projectId, downloadStatus: "PENDING" },
+            data: { downloadStatus: "FAILED", downloadError: "Could not queue the download" },
+          });
+          throw err;
+        }
+      }
+    }
+    return this.getSourceDownload(projectId, userId);
   }
 
   /** Queues filmstrip generation unless it is already running or done. */
