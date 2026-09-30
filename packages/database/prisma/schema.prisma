@@ -125,6 +125,7 @@ model User {
   projects           Project[]
   researchVideos     ResearchVideo[]
   downloads          Download[]
+  photoSets          PhotoSet[]
   refreshTokens      RefreshToken[]
   creditTransactions CreditTransaction[]
   subscription       Subscription?
@@ -260,6 +261,37 @@ model Download {
   height       Int?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+// ── Video to photos ───────────────────────────────────────
+// Stills taken from a YouTube video, with no project around them.
+
+model PhotoSet {
+  id         String   @id @default(cuid())
+  userId     String
+  url        String
+  videoId    String
+  title      String?
+  channel    String?
+  duration   Float?
+  /** scenes | even */
+  mode       String   @default("scenes")
+  count      Int      @default(24)
+  /** PENDING | FINDING | CAPTURING | SAVING | READY | FAILED */
+  status     String   @default("PENDING")
+  progress   Int      @default(0)
+  step       String?
+  error      String?
+  /** StoredPhoto[] — see shared-types */
+  photos     Json?
+  zipKey     String?
+  zipBytes   BigInt?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

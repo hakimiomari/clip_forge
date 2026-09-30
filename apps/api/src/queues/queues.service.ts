@@ -18,6 +18,7 @@ import {
   type GeneratedVideoJob,
   type SourceDownloadJob,
   type VideoDownloadJob,
+  type VideoPhotosJob,
   type HighlightGenerationJob,
   type RenderVideoJob,
 } from "@clipforge/shared-types";
@@ -95,6 +96,14 @@ export class QueuesService implements OnModuleDestroy {
       attempts: 2,
     });
     this.logger.log(`Enqueued download ${payload.downloadId}`);
+    return job.id ?? "";
+  }
+
+  async enqueueVideoPhotos(payload: VideoPhotosJob): Promise<string> {
+    const job = await this.queue(QUEUES.VIDEO_PHOTOS).add("photos", payload, {
+      attempts: 2,
+    });
+    this.logger.log(`Enqueued photo set ${payload.photoSetId}`);
     return job.id ?? "";
   }
 

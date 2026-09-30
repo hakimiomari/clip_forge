@@ -20,6 +20,7 @@ export const QUEUES = {
   GENERATED_VIDEO: "generated-video",
   SOURCE_DOWNLOAD: "source-download",
   VIDEO_DOWNLOAD: "video-download",
+  VIDEO_PHOTOS: "video-photos",
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
@@ -138,6 +139,11 @@ export interface SourceDownloadJob {
 
 export interface VideoDownloadJob {
   downloadId: string;
+  userId: string;
+}
+
+export interface VideoPhotosJob {
+  photoSetId: string;
   userId: string;
 }
 

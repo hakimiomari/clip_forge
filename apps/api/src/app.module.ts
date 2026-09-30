@@ -20,6 +20,7 @@ import { ResearchModule } from "./research/research.module";
 import { CompilationsModule } from "./compilations/compilations.module";
 import { GeneratedModule } from "./generated/generated.module";
 import { DownloadsModule } from "./downloads/downloads.module";
+import { PhotosModule } from "./photos/photos.module";
 import { JwtAuthGuard } from "./common/guards/jwt-auth.guard";
 
 @Module({
@@ -51,6 +52,7 @@ import { JwtAuthGuard } from "./common/guards/jwt-auth.guard";
     CompilationsModule,
     GeneratedModule,
     DownloadsModule,
+    PhotosModule,
     HealthModule,
   ],
   providers: [

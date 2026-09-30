@@ -9,3 +9,4 @@ export * from "./compilation.js";
 export * from "./reel.js";
 export * from "./generated.js";
 export * from "./downloads.js";
+export * from "./photos.js";

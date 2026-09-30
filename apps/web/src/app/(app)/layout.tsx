@@ -7,6 +7,7 @@ import {
   Clapperboard,
   Wand2,
   Download,
+  Images,
   LayoutDashboard,
   FolderOpen,
   Loader2,
@@ -27,6 +28,7 @@ const navItems = [
   { href: "/compile", label: "Best-of compilation", icon: Clapperboard },
   { href: "/generate", label: "AI video", icon: Wand2 },
   { href: "/downloads", label: "Downloads", icon: Download },
+  { href: "/photos", label: "Video to photos", icon: Images },
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
